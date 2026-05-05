@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: schwarze-sau-online
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ROOM_TTL_MS
+        value: "1800000"
+      - key: BOT_DELAY_MS
+        value: "650"
+      - key: EXPIRY_SWEEP_MS
+        value: "60000"

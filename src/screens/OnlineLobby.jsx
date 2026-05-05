@@ -1,0 +1,703 @@
+import { useEffect, useMemo, useState } from "react";
+import { socket } from "../multiplayer/socketClient.js";
+import { SYM, VN, isRed, sameCard, cardPts } from "../../shared/game/cards.js";
+
+const page = {
+  minHeight: "100vh",
+  background:
+    "radial-gradient(ellipse at 50% 0%,#1d5c40 0%,#0f3422 40%,#061910 100%)",
+  color: "white",
+  fontFamily: "Georgia,serif",
+  padding: 24,
+  boxSizing: "border-box",
+};
+
+const panel = {
+  maxWidth: 860,
+  margin: "0 auto",
+  background: "rgba(0,0,0,0.35)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 18,
+  padding: 20,
+};
+
+function Button({ children, onClick, disabled, style = {} }) {
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      style={{
+        background: disabled
+          ? "rgba(255,255,255,0.1)"
+          : "linear-gradient(135deg,#f4c430,#d4a017)",
+        color: disabled ? "rgba(255,255,255,0.35)" : "#1a1a1a",
+        border: "none",
+        borderRadius: 10,
+        padding: "10px 16px",
+        fontWeight: "bold",
+        cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "Georgia,serif",
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TextInput(props) {
+  return (
+    <input
+      {...props}
+      style={{
+        width: "100%",
+        padding: "11px 12px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.2)",
+        background: "rgba(255,255,255,0.08)",
+        color: "white",
+        fontSize: 16,
+        boxSizing: "border-box",
+        marginTop: 6,
+      }}
+    />
+  );
+}
+
+function CardFace({ card, highlighted, dimmed, selected, onClick, size = "md" }) {
+  const w = size === "sm" ? 42 : 58;
+  const h = size === "sm" ? 59 : 81;
+  const fs = size === "sm" ? 11 : 13;
+  const sfs = size === "sm" ? 18 : 26;
+  const isSau = card.s === "S" && card.v === 12;
+  const red = isRed(card.s);
+  const color = isSau ? "#7B0000" : red ? "#C0392B" : "#1a1a2e";
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        width: w,
+        height: h,
+        background: selected ? "#fff8dc" : isSau ? "#fff8f8" : "#fff",
+        borderRadius: 6,
+        border: selected
+          ? "2.5px solid #f4c430"
+          : highlighted
+          ? "2px solid rgba(244,196,48,0.55)"
+          : isSau
+          ? "1.5px solid #C0392B"
+          : "1px solid #ccc",
+        boxShadow: selected
+          ? "0 0 14px rgba(244,196,48,0.8),1px 3px 6px rgba(0,0,0,0.3)"
+          : "1px 2px 5px rgba(0,0,0,0.3)",
+        cursor: onClick ? "pointer" : "default",
+        opacity: dimmed ? 0.3 : 1,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        padding: "3px 4px",
+        color,
+        fontSize: fs,
+        fontWeight: "bold",
+        fontFamily: "Georgia,serif",
+        transition: "transform 0.12s",
+        transform: selected ? "translateY(-12px) scale(1.05)" : highlighted && onClick ? "translateY(-5px)" : "none",
+        userSelect: "none",
+        flexShrink: 0,
+        position: "relative",
+      }}
+    >
+      <div style={{ lineHeight: 1.1 }}>
+        {VN(card.v)}
+        <br />
+        {SYM[card.s]}
+      </div>
+      <div style={{ textAlign: "center", fontSize: sfs, lineHeight: 1 }}>{SYM[card.s]}</div>
+      <div style={{ lineHeight: 1.1, transform: "rotate(180deg)", alignSelf: "flex-end" }}>
+        {VN(card.v)}
+        <br />
+        {SYM[card.s]}
+      </div>
+      {isSau && (
+        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 14, opacity: 0.22, pointerEvents: "none" }}>
+          🐷
+        </div>
+      )}
+    </div>
+  );
+}
+
+function emitAck(event, payload) {
+  return new Promise((resolve) => {
+    socket.emit(event, payload, resolve);
+  });
+}
+
+function cardId(card) {
+  return `${card.s}${card.v}`;
+}
+
+const RECONNECT_KEY = "schwarzeSauReconnect";
+
+function saveReconnect(roomCode, reconnectToken) {
+  if (!roomCode || !reconnectToken) return;
+  localStorage.setItem(RECONNECT_KEY, JSON.stringify({ roomCode, reconnectToken }));
+}
+
+function loadReconnect() {
+  try {
+    return JSON.parse(localStorage.getItem(RECONNECT_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function clearReconnect() {
+  localStorage.removeItem(RECONNECT_KEY);
+}
+
+function ScoreStrip({ game }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
+      {game.names.map((name, i) => (
+        <div
+          key={i}
+          style={{
+            padding: 10,
+            borderRadius: 12,
+            background: i === game.currentPlayer ? "rgba(244,196,48,0.12)" : "rgba(255,255,255,0.06)",
+            border: i === game.yourSeat ? "1px solid rgba(244,196,48,0.45)" : "1px solid rgba(255,255,255,0.08)",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ color: "#6dbf8a", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {game.seatTypes[i] === "human" ? "👤" : "🧠"} {name} {i === game.dealer ? "(G)" : ""}
+          </div>
+          <div style={{ fontSize: 21, fontWeight: "bold", color: i === game.currentPlayer ? "#f4c430" : "white" }}>{game.runScores[i]}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{game.tricksWon[i]}✦</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LastTrickBanner({ game }) {
+  if (!game.lastTrick) return null;
+  const lt = game.lastTrick;
+  return (
+    <div style={{ marginTop: 14, padding: 12, borderRadius: 14, background: "rgba(0,0,0,0.28)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <div style={{ color: lt.pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold", marginBottom: 8 }}>
+        Letzter Stich: {game.names[lt.winner]} {lt.pts >= 0 ? "+" : ""}{lt.pts} Punkte
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+        {lt.trick.map(({ player, card }, idx) => (
+          <div key={idx} style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 10, color: "#6dbf8a", marginBottom: 4 }}>{game.names[player]}</div>
+            <CardFace card={card} size="sm" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OnlineGame({ room, game, setError }) {
+  const [selected, setSelected] = useState([]);
+
+  useEffect(() => {
+    setSelected([]);
+  }, [game.phase, game.round, game.yourSeat, game.hand.map(cardId).join(",")]);
+
+  const selectedHas = (card) => selected.some((c) => sameCard(c, card));
+  const validHas = (card) => game.validCards.some((c) => sameCard(c, card));
+
+  function toggleQuetsch(card) {
+    setSelected((prev) => {
+      if (prev.some((c) => sameCard(c, card))) return prev.filter((c) => !sameCard(c, card));
+      if (prev.length >= 3) return prev;
+      return [...prev, card];
+    });
+  }
+
+  async function submitQuetsch() {
+    const res = await emitAck("submitQuetsch", { roomCode: room.roomCode, cards: selected });
+    if (!res?.ok) setError(res?.message || "Quetsch-Karten konnten nicht weitergegeben werden.");
+  }
+
+  async function playCard(card) {
+    const res = await emitAck("playCard", { roomCode: room.roomCode, card });
+    if (!res?.ok) setError(res?.message || "Karte konnte nicht gespielt werden.");
+  }
+
+  if (game.phase === "gameover") {
+    const ranked = game.names
+      .map((name, seat) => ({ name, seat, score: game.scores[seat], type: game.seatTypes[seat] }))
+      .sort((a, b) => b.score - a.score || a.seat - b.seat);
+    const medals = ["🥇", "🥈", "🥉", "4."];
+
+    return (
+      <div style={{ marginTop: 22 }}>
+        <h2 style={{ color: "#f4c430", textAlign: "center" }}>Spielende</h2>
+        {ranked.map((p, i) => (
+          <div key={p.seat} style={{ display: "flex", justifyContent: "space-between", padding: 13, marginTop: 8, borderRadius: 12, background: i === 0 ? "rgba(244,196,48,0.12)" : "rgba(255,255,255,0.06)" }}>
+            <span>{medals[i]} {p.type === "human" ? "👤" : "🧠"} {p.name}</span>
+            <strong style={{ color: "#f4c430" }}>{p.score}</strong>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.55)" }}>Raum {room.roomCode}</div>
+          <h2 style={{ color: "#f4c430", margin: "4px 0" }}>Online-Spiel · Runde {game.round}/{game.maxRounds}</h2>
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.7)" }}>
+          Dein Sitz: {game.yourSeat === null ? "Zuschauer" : `Sitz ${game.yourSeat + 1}`}
+        </div>
+      </div>
+
+      <ScoreStrip game={game} />
+      <LastTrickBanner game={game} />
+
+      {game.lastRound && (
+        <div style={{ marginTop: 12, color: "rgba(255,255,255,0.6)", textAlign: "center", fontSize: 13 }}>
+          Letzte Runde: {game.lastRound.roundPts.map((pts, i) => `${game.names[i]} ${pts >= 0 ? "+" : ""}${pts}`).join(" · ")}
+        </div>
+      )}
+
+      {game.phase === "quetsch" && (
+        <div style={{ marginTop: 22 }}>
+          {game.quetschNeeded ? (
+            <>
+              <h3 style={{ color: "#f4c430", textAlign: "center" }}>Quetsch: 3 Karten an {game.names[game.quetschTarget]}</h3>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 16 }}>
+                {[0, 1, 2].map((i) => (
+                  <div key={i} style={{ width: 50, height: 70, borderRadius: 8, border: `2px solid ${selected[i] ? "#f4c430" : "rgba(255,255,255,0.14)"}`, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.04)" }}>
+                    {selected[i] ? <CardFace card={selected[i]} size="sm" /> : "?"}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                {game.hand.map((card) => (
+                  <CardFace
+                    key={cardId(card)}
+                    card={card}
+                    selected={selectedHas(card)}
+                    highlighted={!selectedHas(card) && selected.length < 3}
+                    onClick={() => toggleQuetsch(card)}
+                  />
+                ))}
+              </div>
+              <div style={{ textAlign: "center", marginTop: 18 }}>
+                <Button onClick={submitQuetsch} disabled={selected.length !== 3}>Karten weitergeben</Button>
+              </div>
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.65)" }}>
+              Warte auf Quetsch-Auswahl von {game.currentQuetschSeat !== null ? game.names[game.currentQuetschSeat] : "anderen Spielern"}…
+            </div>
+          )}
+        </div>
+      )}
+
+      {game.phase === "play" && (
+        <div style={{ marginTop: 22 }}>
+          <div style={{ textAlign: "center", color: "#6dbf8a", marginBottom: 10 }}>
+            Stich {game.tricksPlayed + 1}/13 {game.leadSuit ? `· Angespielt: ${SYM[game.leadSuit]}` : ""}
+          </div>
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap", minHeight: 105, padding: 14, borderRadius: 14, background: "rgba(0,0,0,0.2)" }}>
+            {game.trick.length === 0 ? (
+              <span style={{ color: "rgba(255,255,255,0.25)" }}>Noch keine Karte gespielt</span>
+            ) : (
+              game.trick.map(({ player, card }, idx) => (
+                <div key={idx} style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: "#6dbf8a", marginBottom: 4 }}>{game.names[player]}</div>
+                  <CardFace card={card} />
+                  <div style={{ fontSize: 10, color: cardPts(card) < 0 ? "#f87171" : "rgba(255,255,255,0.4)", marginTop: 3 }}>
+                    {cardPts(card) !== 0 ? cardPts(card) : ""}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <h3 style={{ color: "#f4c430", textAlign: "center", marginTop: 18 }}>
+            {game.currentPlayer === game.yourSeat ? "Du bist am Zug" : `${game.names[game.currentPlayer]} ist am Zug`}
+          </h3>
+          {game.leadSuit && <div style={{ color: "#9dcfb0", textAlign: "center", marginBottom: 8 }}>Bedienen: {SYM[game.leadSuit]}</div>}
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8 }}>
+            {game.hand.map((card) => {
+              const canPlay = game.currentPlayer === game.yourSeat && validHas(card);
+              return (
+                <CardFace
+                  key={cardId(card)}
+                  card={card}
+                  highlighted={canPlay}
+                  dimmed={game.currentPlayer === game.yourSeat && !validHas(card)}
+                  onClick={canPlay ? () => playCard(card) : null}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function OnlineLobby({ onBack }) {
+  const [connected, setConnected] = useState(socket.connected);
+  const [socketId, setSocketId] = useState(socket.id || null);
+  const [name, setName] = useState(localStorage.getItem("schwarzeSauName") || "Axel");
+  const [joinCode, setJoinCode] = useState("");
+  const [room, setRoom] = useState(null);
+  const [game, setGame] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!socket.connected) socket.connect();
+
+    const onConnect = async () => {
+      setConnected(true);
+      setSocketId(socket.id);
+
+      const saved = loadReconnect();
+      if (saved?.roomCode && saved?.reconnectToken) {
+        const res = await emitAck("reconnectSeat", saved);
+        if (res?.ok) {
+          saveReconnect(res.room?.roomCode, res.reconnectToken);
+        }
+      }
+    };
+
+    const onDisconnect = () => {
+      setConnected(false);
+      setSocketId(null);
+    };
+
+    const onHello = (msg) => {
+      setSocketId(msg.socketId);
+    };
+
+    const onRoomUpdated = (nextRoom) => {
+      setRoom(nextRoom);
+      if (nextRoom.status !== "playing") setGame(null);
+      setError("");
+    };
+
+    const onGameUpdated = (payload) => {
+      if (payload.room) setRoom(payload.room);
+      setGame(payload.game);
+      setError("");
+    };
+
+    const onRoomError = (payload) => {
+      setError(payload.message || "Unbekannter Lobby-Fehler.");
+    };
+
+    const onRoomClosed = (payload) => {
+      setRoom(null);
+      setGame(null);
+      clearReconnect();
+      setError(payload.message || "Der Raum wurde geschlossen.");
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("serverHello", onHello);
+    socket.on("roomUpdated", onRoomUpdated);
+    socket.on("gameUpdated", onGameUpdated);
+    socket.on("roomError", onRoomError);
+    socket.on("roomClosed", onRoomClosed);
+
+    return () => {
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("serverHello", onHello);
+      socket.off("roomUpdated", onRoomUpdated);
+      socket.off("gameUpdated", onGameUpdated);
+      socket.off("roomError", onRoomError);
+      socket.off("roomClosed", onRoomClosed);
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("schwarzeSauName", name);
+  }, [name]);
+
+  const isHost = useMemo(() => {
+    return !!room && !!socketId && room.hostSocketId === socketId;
+  }, [room, socketId]);
+
+  const mySeat = useMemo(() => {
+    if (!room || !socketId) return null;
+    return room.seats.find((s) => s.socketId === socketId) || null;
+  }, [room, socketId]);
+
+  const canStart = useMemo(() => {
+    return !!room && isHost && room.status === "lobby" && room.seats.every((s) => s.type === "human" || s.type === "bot");
+  }, [room, isHost]);
+
+  async function createRoom() {
+    setError("");
+    const res = await emitAck("createRoom", { name });
+    if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
+    if (!res?.ok) setError(res?.message || "Raum konnte nicht erstellt werden.");
+  }
+
+  async function joinRoom() {
+    setError("");
+    const code = joinCode.trim().toUpperCase();
+    if (!code) {
+      setError("Bitte gib einen Raumcode ein.");
+      return;
+    }
+
+    const res = await emitAck("joinRoom", { roomCode: code, name });
+    if (!res?.ok) setError(res?.message || "Raum konnte nicht betreten werden.");
+  }
+
+  async function claimSeat(seat) {
+    if (!room) return;
+    const res = await emitAck("claimSeat", {
+      roomCode: room.roomCode,
+      seat,
+      name,
+    });
+    if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
+    if (!res?.ok) setError(res?.message || "Platz konnte nicht belegt werden.");
+  }
+
+  async function setBot(seat) {
+    if (!room) return;
+    const res = await emitAck("setSeatBot", {
+      roomCode: room.roomCode,
+      seat,
+    });
+    if (!res?.ok) setError(res?.message || "Bot konnte nicht gesetzt werden.");
+  }
+
+  async function setOpen(seat) {
+    if (!room) return;
+    const res = await emitAck("setSeatOpen", {
+      roomCode: room.roomCode,
+      seat,
+    });
+    if (!res?.ok) setError(res?.message || "Platz konnte nicht geöffnet werden.");
+  }
+
+  async function startGame() {
+    if (!room) return;
+    const res = await emitAck("startGame", { roomCode: room.roomCode });
+    if (!res?.ok) setError(res?.message || "Spiel konnte nicht gestartet werden.");
+  }
+
+  async function leave() {
+    if (room) {
+      await emitAck("leaveRoom", { roomCode: room.roomCode });
+    }
+    clearReconnect();
+    setRoom(null);
+    setGame(null);
+  }
+
+  return (
+    <div style={page}>
+      <div style={panel}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <h1 style={{ margin: 0, color: "#f4c430" }}>Online-Lobby</h1>
+            <div style={{ color: "rgba(255,255,255,0.55)", marginTop: 4 }}>
+              Server: {connected ? "verbunden" : "getrennt"}
+            </div>
+          </div>
+          <Button onClick={room ? leave : onBack}>Zurück</Button>
+        </div>
+
+        {error && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: 12,
+              borderRadius: 10,
+              background: "rgba(192,57,43,0.25)",
+              border: "1px solid rgba(192,57,43,0.5)",
+              color: "#ffb3b3",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {room?.status === "playing" ? (
+          game ? (
+            <OnlineGame room={room} game={game} setError={setError} />
+          ) : (
+            <div style={{ marginTop: 32, textAlign: "center", color: "rgba(255,255,255,0.65)" }}>Warte auf Spielstand…</div>
+          )
+        ) : !room ? (
+          <div style={{ marginTop: 22, display: "grid", gap: 18 }}>
+            <label>
+              Spielername
+              <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <Button onClick={createRoom} disabled={!connected}>
+                Raum erstellen
+              </Button>
+            </div>
+
+            <div
+              style={{
+                borderTop: "1px solid rgba(255,255,255,0.12)",
+                paddingTop: 18,
+              }}
+            >
+              <label>
+                Raumcode
+                <TextInput
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder="ABCD"
+                  maxLength={4}
+                />
+              </label>
+              <div style={{ marginTop: 12 }}>
+                <Button onClick={joinRoom} disabled={!connected}>
+                  Raum beitreten
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 22 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div style={{ color: "rgba(255,255,255,0.55)" }}>Raumcode</div>
+                <div style={{ fontSize: 38, fontWeight: "bold", letterSpacing: 5 }}>
+                  {room.roomCode}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  background: isHost
+                    ? "rgba(244,196,48,0.15)"
+                    : "rgba(255,255,255,0.08)",
+                  color: isHost ? "#f4c430" : "rgba(255,255,255,0.7)",
+                }}
+              >
+                {isHost ? "Du bist Host" : "Warte auf den Host"}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 22, display: "grid", gap: 12 }}>
+              {room.seats.map((seat) => {
+                const isMine = seat.socketId && seat.socketId === socketId;
+                const label =
+                  seat.type === "open"
+                    ? "Frei"
+                    : seat.type === "bot"
+                    ? seat.name || "Bot"
+                    : seat.name || "Mensch";
+
+                return (
+                  <div
+                    key={seat.seat}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "80px 1fr auto",
+                      gap: 12,
+                      alignItems: "center",
+                      padding: 14,
+                      borderRadius: 14,
+                      background: isMine
+                        ? "rgba(244,196,48,0.12)"
+                        : "rgba(255,255,255,0.06)",
+                      border: isMine
+                        ? "1px solid rgba(244,196,48,0.4)"
+                        : "1px solid rgba(255,255,255,0.1)",
+                    }}
+                  >
+                    <strong>Platz {seat.seat + 1}</strong>
+                    <div>
+                      <div>
+                        {seat.type === "human"
+                          ? "👤"
+                          : seat.type === "bot"
+                          ? "🧠"
+                          : "○"}{" "}
+                        {label} {seat.isHost ? "(Host)" : ""}
+                      </div>
+                      {isMine && (
+                        <div style={{ fontSize: 12, color: "#f4c430" }}>
+                          dein Platz
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {seat.type === "open" && (
+                        <Button onClick={() => claimSeat(seat.seat)}>
+                          Belegen
+                        </Button>
+                      )}
+
+                      {isHost && seat.type !== "human" && (
+                        <>
+                          {seat.type !== "bot" && (
+                            <Button onClick={() => setBot(seat.seat)}>
+                              Bot
+                            </Button>
+                          )}
+                          {seat.type !== "open" && (
+                            <Button onClick={() => setOpen(seat.seat)}>
+                              Frei
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ marginTop: 20, color: "rgba(255,255,255,0.55)" }}>
+              Dein aktueller Platz: {mySeat ? `Platz ${mySeat.seat + 1}` : "noch keiner"}
+            </div>
+
+            <div style={{ marginTop: 18 }}>
+              <Button onClick={startGame} disabled={!canStart}>
+                Spiel starten
+              </Button>
+              {!canStart && isHost && (
+                <div style={{ color: "rgba(255,255,255,0.45)", marginTop: 8, fontSize: 13 }}>
+                  Besetze zuerst jeden freien Platz mit einem Menschen oder Bot.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
