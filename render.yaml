@@ -15,3 +15,5 @@ services:
         value: "650"
       - key: EXPIRY_SWEEP_MS
         value: "60000"
+      - key: QUETSCH_REVIEW_MS
+        value: "2600"

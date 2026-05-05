@@ -12,6 +12,7 @@ import { sameCard, sortHand, cardPts } from "../shared/game/cards.js";
 const rooms = new Map();
 const MAX_ROUNDS = 8;
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS || 30 * 60 * 1000);
+const QUETSCH_REVIEW_MS = Number(process.env.QUETSCH_REVIEW_MS || 2600);
 
 function log(message, data = {}) {
   console.log(`[room] ${message}`, data);
@@ -139,9 +140,11 @@ function createGameState(dealer) {
     maxRounds: MAX_ROUNDS,
     scores: [0, 0, 0, 0],
     dealer,
-    phase: "quetsch", // "quetsch" | "play" | "round_done" | "gameover"
+    phase: "quetsch", // "quetsch" | "quetsch_review" | "play" | "round_done" | "gameover"
     gs: dealRound(dealer),
     quetschSelections: [null, null, null, null],
+    quetschReceived: [[], [], [], []],
+    quetschReviewUntil: null,
     currentQuetschSeat: null,
     lastTrick: null,
     lastRound: null,
@@ -159,27 +162,44 @@ function ensureBotQuetschSelections(room) {
   }
 }
 
-function nextConnectedHumanQuetschSeat(room) {
+function pendingHumanQuetschSeats(room) {
   const game = room.game;
-  if (!game || game.phase !== "quetsch") return null;
+  if (!game || game.phase !== "quetsch") return [];
+  const pending = [];
   for (let seat = 0; seat < 4; seat++) {
-    if (isConnectedHumanSeat(room, seat) && !game.quetschSelections[seat]) return seat;
+    if (isConnectedHumanSeat(room, seat) && !game.quetschSelections[seat]) pending.push(seat);
   }
-  return null;
+  return pending;
 }
 
 function allQuetschSelectionsReady(room) {
   return room.game.quetschSelections.every((selection) => Array.isArray(selection) && selection.length === 3);
 }
 
-function startPlayAfterQuetsch(room) {
+function startQuetschReview(room) {
   const game = room.game;
   const selections = game.quetschSelections.map((sel) => [...sel]);
+  const received = [[], [], [], []];
+  for (let seat = 0; seat < 4; seat++) {
+    received[(seat + 1) % 4] = [...selections[seat]];
+  }
   game.gs = applyQuetschSelections(game.gs, selections);
+  game.quetschReceived = received;
   game.quetschSelections = [null, null, null, null];
   game.currentQuetschSeat = null;
+  game.quetschReviewUntil = Date.now() + QUETSCH_REVIEW_MS;
+  game.phase = "quetsch_review";
+  log("Quetsch beendet, zeige neue Karten", { roomCode: room.roomCode, round: game.round });
+}
+
+function finishQuetschReview(room) {
+  const game = room.game;
+  if (!game || game.phase !== "quetsch_review") return false;
+  if (Date.now() < (game.quetschReviewUntil || 0)) return false;
   game.phase = "play";
-  log("Quetsch beendet", { roomCode: room.roomCode, round: game.round });
+  game.quetschReviewUntil = null;
+  log("Spielphase nach Quetsch-Anzeige gestartet", { roomCode: room.roomCode, round: game.round });
+  return true;
 }
 
 function finishRound(room) {
@@ -242,23 +262,22 @@ function applyOnlineCard(room, player, card) {
 export function advanceNonCardPhases(room) {
   if (!room?.game || room.status !== "playing") return false;
   let changed = false;
-  let safety = 0;
-  while (room.game.phase === "quetsch") {
-    if (++safety > 20) throw new Error("Quetsch-Fortschritt überschreitet Sicherheitslimit.");
+
+  if (room.game.phase === "quetsch") {
     ensureBotQuetschSelections(room);
     changed = true;
-    const nextHuman = nextConnectedHumanQuetschSeat(room);
-    if (nextHuman !== null) {
-      room.game.currentQuetschSeat = nextHuman;
-      return changed;
-    }
+    const pendingHumans = pendingHumanQuetschSeats(room);
+    room.game.currentQuetschSeat = pendingHumans[0] ?? null;
     if (allQuetschSelectionsReady(room)) {
-      startPlayAfterQuetsch(room);
+      startQuetschReview(room);
       changed = true;
-      continue;
     }
-    throw new Error("Quetsch-Phase wartet in einem ungültigen Zustand.");
   }
+
+  if (room.game.phase === "quetsch_review") {
+    changed = finishQuetschReview(room) || changed;
+  }
+
   return changed;
 }
 
@@ -433,6 +452,8 @@ export function startNextOnlineRound({ roomCode, socketId }) {
   game.phase = "quetsch";
   game.gs = dealRound(nextDealer);
   game.quetschSelections = [null, null, null, null];
+  game.quetschReceived = [[], [], [], []];
+  game.quetschReviewUntil = null;
   game.currentQuetschSeat = null;
   game.lastTrick = null;
   advanceNonCardPhases(room);
@@ -446,7 +467,7 @@ export function submitOnlineQuetsch({ roomCode, socketId, cards }) {
   if (room.game.phase !== "quetsch") throw new Error("Es ist gerade keine Quetsch-Phase.");
   const seat = findSeatForSocket(room, socketId);
   if (!seat) throw new Error("Du sitzt nicht in diesem Raum.");
-  if (room.game.currentQuetschSeat !== seat.seat) throw new Error("Du bist gerade nicht mit Quetschen dran.");
+  if (Array.isArray(room.game.quetschSelections[seat.seat])) throw new Error("Du hast deine Quetsch-Karten schon ausgewählt.");
   room.game.quetschSelections[seat.seat] = validateCardsInHand(room.game.gs.hands[seat.seat], cards, 3);
   log("Mensch wählt Quetsch-Karten", { roomCode: room.roomCode, seat: seat.seat });
   advanceNonCardPhases(room);
@@ -478,6 +499,9 @@ export function getPrivateGameView(room, socketId) {
   const seatTypes = room.seats.map((s) => (s.type === "human" && s.disconnected ? "bot" : s.type));
   const hand = seatIndex === null ? [] : sortHand(gs.hands[seatIndex] || []);
   const validCards = seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex ? getValidCards(gs, seatIndex) : [];
+  const pendingQuetschSeats = game.phase === "quetsch" ? pendingHumanQuetschSeats(room) : [];
+  const quetschSubmitted = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex]);
+  const quetschReceived = seatIndex !== null ? (game.quetschReceived?.[seatIndex] || []) : [];
   const runScores = game.scores.map((score, i) => score + (gs.roundPts?.[i] || 0));
   return {
     phase: game.phase,
@@ -489,8 +513,13 @@ export function getPrivateGameView(room, socketId) {
     dealer: gs.dealer,
     currentPlayer: game.phase === "play" ? gs.currentPlayer : null,
     currentQuetschSeat: game.phase === "quetsch" ? game.currentQuetschSeat : null,
-    quetschNeeded: game.phase === "quetsch" && seatIndex !== null && game.currentQuetschSeat === seatIndex,
+    pendingQuetschSeats,
+    quetschSubmitted,
+    quetschNeeded: game.phase === "quetsch" && seatIndex !== null && !quetschSubmitted,
     quetschTarget: seatIndex !== null ? (seatIndex + 1) % 4 : null,
+    quetschSource: seatIndex !== null ? (seatIndex + 3) % 4 : null,
+    quetschReceived,
+    quetschReviewRemainingMs: game.phase === "quetsch_review" ? Math.max(0, (game.quetschReviewUntil || Date.now()) - Date.now()) : 0,
     hand,
     validCards,
     trick: gs.trick,

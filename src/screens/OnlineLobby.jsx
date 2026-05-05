@@ -245,6 +245,33 @@ function NegativeCardsBar({ game }) {
   );
 }
 
+
+function QuetschSlots({ cards = [] }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", gap: 10, margin: "14px 0 16px" }}>
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          style={{
+            width: 58,
+            height: 81,
+            borderRadius: 8,
+            border: cards[i] ? "1.5px solid rgba(244,196,48,0.65)" : "2px dashed rgba(255,255,255,0.18)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: cards[i] ? "rgba(244,196,48,0.08)" : "rgba(255,255,255,0.035)",
+            color: "rgba(255,255,255,0.28)",
+            fontSize: 24,
+          }}
+        >
+          {cards[i] ? <CardFace card={cards[i]} size="sm" /> : "?"}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function OnlineGame({ room, game, setError }) {
   const [selected, setSelected] = useState([]);
 
@@ -265,6 +292,7 @@ function OnlineGame({ room, game, setError }) {
 
   async function submitQuetsch() {
     const res = await emitAck("submitQuetsch", { roomCode: room.roomCode, cards: selected });
+    if (res?.ok) setSelected([]);
     if (!res?.ok) setError(res?.message || "Quetsch-Karten konnten nicht weitergegeben werden.");
   }
 
@@ -382,10 +410,31 @@ function OnlineGame({ room, game, setError }) {
               </div>
             </>
           ) : (
-            <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.65)" }}>
-              Warte auf Quetsch-Auswahl von {game.currentQuetschSeat !== null ? game.names[game.currentQuetschSeat] : "anderen Spielern"}…
+            <div style={{ textAlign: "center", padding: "30px 16px", color: "rgba(255,255,255,0.72)" }}>
+              <h3 style={{ color: "#f4c430", marginTop: 0 }}>Quetsch abgegeben</h3>
+              <div style={{ color: "rgba(255,255,255,0.58)", lineHeight: 1.45 }}>
+                Du bekommst gleich 3 neue Karten von {game.names[game.quetschSource]}.<br />
+                Warte, bis alle ihre Quetsch-Karten ausgewählt haben.
+              </div>
+              <QuetschSlots cards={[]} />
+              {Array.isArray(game.pendingQuetschSeats) && game.pendingQuetschSeats.length > 0 && (
+                <div style={{ color: "rgba(255,255,255,0.42)", fontSize: 13 }}>
+                  Noch offen: {game.pendingQuetschSeats.map((seat) => game.names[seat]).join(", ")}
+                </div>
+              )}
             </div>
           )}
+        </div>
+      )}
+
+      {game.phase === "quetsch_review" && (
+        <div style={{ marginTop: 22, textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.75)" }}>
+          <h3 style={{ color: "#f4c430", marginTop: 0 }}>Neue Quetsch-Karten</h3>
+          <div style={{ color: "rgba(255,255,255,0.6)", lineHeight: 1.45 }}>
+            Diese 3 Karten kommen von {game.names[game.quetschSource]}. Gleich beginnt die Spielphase.
+          </div>
+          <QuetschSlots cards={game.quetschReceived || []} />
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.42)" }}>Bereit machen für den ersten Stich…</div>
         </div>
       )}
 

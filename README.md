@@ -41,6 +41,7 @@ NODE_ENV=production
 ROOM_TTL_MS=1800000
 BOT_DELAY_MS=650
 EXPIRY_SWEEP_MS=60000
+QUETSCH_REVIEW_MS=2600
 ```
 
 ## Features
@@ -55,3 +56,5 @@ EXPIRY_SWEEP_MS=60000
 - If the host disconnects during a running game, the game continues.
 - Disconnected human seats are temporarily controlled by the heuristic bot.
 - Bot card play has a small delay for a more tabletop-like feel.
+- Online quetsch selection is parallel for all humans. After submitting, players see empty incoming-card slots while waiting.
+- After all quetsch cards are selected, each player briefly sees the three received cards before the first trick starts.

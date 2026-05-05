@@ -102,7 +102,9 @@ function scheduleAdvance(roomCode, immediate = false) {
       emitRoomAndGame(room);
       const moved = advanceOneBotCard(room);
       emitRoomAndGame(room);
-      if (moved && room.status === "playing" && room.game?.phase !== "gameover") {
+      if (room.status === "playing" && room.game?.phase === "quetsch_review") {
+        scheduleAdvance(roomCode, false);
+      } else if (moved && room.status === "playing" && room.game?.phase !== "gameover") {
         scheduleAdvance(roomCode, false);
       }
     } catch (err) {
