@@ -139,7 +139,7 @@ function createGameState(dealer) {
     maxRounds: MAX_ROUNDS,
     scores: [0, 0, 0, 0],
     dealer,
-    phase: "quetsch", // "quetsch" | "play" | "gameover"
+    phase: "quetsch", // "quetsch" | "play" | "round_done" | "gameover"
     gs: dealRound(dealer),
     quetschSelections: [null, null, null, null],
     currentQuetschSeat: null,
@@ -202,15 +202,14 @@ function finishRound(room) {
     return;
   }
 
-  const nextDealer = (game.dealer + 1) % 4;
-  game.round += 1;
-  game.dealer = nextDealer;
-  game.phase = "quetsch";
-  game.gs = dealRound(nextDealer);
-  game.quetschSelections = [null, null, null, null];
+  game.phase = "round_done";
   game.currentQuetschSeat = null;
-  game.lastTrick = null;
-  log("Neue Runde", { roomCode: room.roomCode, round: game.round, dealer: nextDealer });
+  log("Runde beendet, wartet auf nächste Runde", {
+    roomCode: room.roomCode,
+    round: game.round,
+    roundPts: game.lastRound.roundPts,
+    scores: game.scores,
+  });
 }
 
 function applyOnlineCard(room, player, card) {
@@ -281,7 +280,7 @@ export function advanceOneBotCard(room) {
 export function advanceGameUntilHumanDecision(room) {
   if (!room?.game || room.status !== "playing") return;
   let safety = 0;
-  while (room.game.phase !== "gameover") {
+  while (room.game.phase !== "gameover" && room.game.phase !== "round_done") {
     if (++safety > 250) throw new Error("Spielfortschritt überschreitet Sicherheitslimit.");
     advanceNonCardPhases(room);
     if (room.game.phase !== "play") return;
@@ -416,6 +415,31 @@ export function startOnlineGame({ roomCode, socketId }) {
   return room;
 }
 
+export function startNextOnlineRound({ roomCode, socketId }) {
+  const room = requireRoom(roomCode);
+  if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
+  if (room.game.phase !== "round_done") throw new Error("Die nächste Runde kann gerade nicht gestartet werden.");
+
+  const seat = findSeatForSocket(room, socketId);
+  if (!seat) throw new Error("Du sitzt nicht in diesem Raum.");
+  if (room.hostSocketId && room.hostSocketId !== socketId) {
+    throw new Error("Nur der Host kann die nächste Runde starten.");
+  }
+
+  const game = room.game;
+  const nextDealer = (game.dealer + 1) % 4;
+  game.round += 1;
+  game.dealer = nextDealer;
+  game.phase = "quetsch";
+  game.gs = dealRound(nextDealer);
+  game.quetschSelections = [null, null, null, null];
+  game.currentQuetschSeat = null;
+  game.lastTrick = null;
+  advanceNonCardPhases(room);
+  log("Nächste Runde gestartet", { roomCode: room.roomCode, round: game.round, dealer: nextDealer, socketId });
+  return room;
+}
+
 export function submitOnlineQuetsch({ roomCode, socketId, cards }) {
   const room = requireRoom(roomCode);
   if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
@@ -480,6 +504,7 @@ export function getPrivateGameView(room, socketId) {
     lastTrick: game.lastTrick,
     lastRound: game.lastRound,
     cardPointPreview: hand.reduce((acc, c) => ({ ...acc, [`${c.s}${c.v}`]: cardPts(c) }), {}),
+    canStartNextRound: game.phase === "round_done" && seatIndex !== null && (room.hostSocketId === socketId || !room.hostSocketId),
   };
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { socket } from "../multiplayer/socketClient.js";
-import { SYM, VN, isRed, sameCard, cardPts } from "../../shared/game/cards.js";
+import { SYM, VN, isRed, sameCard, cardPts, unplayedPenaltyCards } from "../../shared/game/cards.js";
 
 const page = {
   minHeight: "100vh",
@@ -202,6 +202,49 @@ function LastTrickBanner({ game }) {
   );
 }
 
+function NegativeCardsBar({ game }) {
+  const stillOpen = unplayedPenaltyCards(game.penaltyPlayed || [], game.trick || []);
+  const openSau = stillOpen.find((c) => c.s === "S" && c.v === 12);
+  const openHearts = stillOpen.filter((c) => c.s === "H").sort((a, b) => a.v - b.v);
+  const played = game.penaltyPlayed || [];
+  const playedSau = played.find((c) => c.s === "S" && c.v === 12);
+  const playedHearts = played.filter((c) => c.s === "H").sort((a, b) => a.v - b.v);
+
+  const Chip = ({ card, muted = false }) => (
+    <span
+      style={{
+        background: card.s === "S" ? "rgba(139,0,0,0.5)" : muted ? "rgba(255,255,255,0.06)" : "rgba(192,57,43,0.22)",
+        border: card.s === "S" ? "1px solid rgba(192,57,43,0.7)" : muted ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(192,57,43,0.4)",
+        borderRadius: 6,
+        padding: "2px 6px",
+        fontSize: 12,
+        fontWeight: "bold",
+        color: muted ? "rgba(255,255,255,0.42)" : card.s === "S" ? "#ffb3b3" : "#ff9090",
+      }}
+    >
+      {card.s === "S" ? "🐷♠Q" : `♥${VN(card.v)}`}
+    </span>
+  );
+
+  return (
+    <div style={{ marginTop: 12, padding: 10, borderRadius: 14, background: "rgba(0,0,0,0.24)", border: "1px solid rgba(255,255,255,0.08)", display: "grid", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.48)", letterSpacing: 0.5, marginRight: 2 }}>NOCH OFFEN:</span>
+        {stillOpen.length === 0 && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>— keine Strafkarte mehr offen —</span>}
+        {openSau && <Chip card={openSau} />}
+        {openHearts.map((card) => <Chip key={`${card.s}${card.v}`} card={card} />)}
+      </div>
+      {(playedSau || playedHearts.length > 0) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", letterSpacing: 0.5, marginRight: 2 }}>GESPIELT:</span>
+          {playedSau && <Chip card={playedSau} muted />}
+          {playedHearts.map((card) => <Chip key={`played-${card.s}${card.v}`} card={card} muted />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OnlineGame({ room, game, setError }) {
   const [selected, setSelected] = useState([]);
 
@@ -230,6 +273,11 @@ function OnlineGame({ room, game, setError }) {
     if (!res?.ok) setError(res?.message || "Karte konnte nicht gespielt werden.");
   }
 
+  async function startNextRound() {
+    const res = await emitAck("startNextRound", { roomCode: room.roomCode });
+    if (!res?.ok) setError(res?.message || "Nächste Runde konnte nicht gestartet werden.");
+  }
+
   if (game.phase === "gameover") {
     const ranked = game.names
       .map((name, seat) => ({ name, seat, score: game.scores[seat], type: game.seatTypes[seat] }))
@@ -249,6 +297,41 @@ function OnlineGame({ room, game, setError }) {
     );
   }
 
+  if (game.phase === "round_done") {
+    const summary = game.lastRound;
+    return (
+      <div style={{ marginTop: 22 }}>
+        <h2 style={{ color: "#f4c430", textAlign: "center" }}>Runde {summary?.round ?? game.round} beendet</h2>
+        <div style={{ color: "#6dbf8a", textAlign: "center", marginBottom: 16 }}>
+          Rundenergebnis und Gesamtstand
+        </div>
+        <div style={{ background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 92px 92px", gap: 8, padding: "9px 13px", color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+            <span>SPIELER</span><span style={{ textAlign: "right" }}>RUNDE</span><span style={{ textAlign: "right" }}>GESAMT</span>
+          </div>
+          {game.names.map((name, seat) => {
+            const rp = summary?.roundPts?.[seat] ?? 0;
+            const total = summary?.totalScores?.[seat] ?? game.scores[seat];
+            return (
+              <div key={seat} style={{ display: "grid", gridTemplateColumns: "1fr 92px 92px", gap: 8, alignItems: "center", padding: "11px 13px", background: seat % 2 ? "rgba(255,255,255,0.025)" : "transparent" }}>
+                <span>{game.seatTypes[seat] === "human" ? "👤" : "🧠"} {name}</span>
+                <strong style={{ textAlign: "right", color: rp >= 0 ? "#4ade80" : "#f87171" }}>{rp >= 0 ? "+" : ""}{rp}</strong>
+                <strong style={{ textAlign: "right", color: "#f4c430", fontSize: 18 }}>{total}</strong>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 20, textAlign: "center" }}>
+          {game.canStartNextRound ? (
+            <Button onClick={startNextRound}>Runde {game.round + 1} starten</Button>
+          ) : (
+            <div style={{ color: "rgba(255,255,255,0.58)" }}>Warte, bis der Host die nächste Runde startet…</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ marginTop: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -262,6 +345,7 @@ function OnlineGame({ room, game, setError }) {
       </div>
 
       <ScoreStrip game={game} />
+      <NegativeCardsBar game={game} />
       <LastTrickBanner game={game} />
 
       {game.lastRound && (

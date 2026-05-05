@@ -15,6 +15,7 @@ import {
   leaveAllRoomsForSocket,
   reconnectSeat,
   startOnlineGame,
+  startNextOnlineRound,
   submitOnlineQuetsch,
   playOnlineCard,
   getInternalRoom,
@@ -212,6 +213,18 @@ io.on("connection", (socket) => {
   socket.on("submitQuetsch", (payload = {}, ack) => {
     try {
       const room = submitOnlineQuetsch({ roomCode: payload.roomCode, socketId: socket.id, cards: payload.cards });
+      emitRoomAndGame(room);
+      acknowledge(ack, { ok: true });
+      scheduleAdvance(room.roomCode, true);
+    } catch (err) {
+      sendError(socket, err.message);
+      acknowledge(ack, { ok: false, message: err.message });
+    }
+  });
+
+  socket.on("startNextRound", (payload = {}, ack) => {
+    try {
+      const room = startNextOnlineRound({ roomCode: payload.roomCode, socketId: socket.id });
       emitRoomAndGame(room);
       acknowledge(ack, { ok: true });
       scheduleAdvance(room.roomCode, true);

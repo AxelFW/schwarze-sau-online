@@ -34,6 +34,16 @@ export const cardPts = c => {
 
 export const isPenalty = c => c.s === 'H' || (c.s === 'S' && c.v === 12);
 
+export const NEGATIVE_CARDS = [QUEEN_SPADES, ...VALS.map(v => ({ s: 'H', v }))];
+
+export const unplayedPenaltyCards = (played = [], trick = []) => {
+  const seen = [
+    ...played,
+    ...trick.map(x => x?.card ?? x),
+  ];
+  return NEGATIVE_CARDS.filter(c => !seen.some(x => sameCard(x, c)));
+};
+
 export const getValidIdxs = (hand, leadSuit) => {
   if (!leadSuit) return hand.map((_, i) => i);
   const follow = hand.map((c, i) => c.s === leadSuit ? i : -1).filter(i => i >= 0);

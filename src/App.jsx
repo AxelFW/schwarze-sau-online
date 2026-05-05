@@ -1,7 +1,7 @@
 import OnlineLobby from "./screens/OnlineLobby.jsx";
 import { useState, useEffect, useCallback } from "react";
 import {
-  SYM, VN, isRed, sameCard, isComputerSeat, cardPts, getValidIdxs, sortHand,
+  SYM, VN, isRed, sameCard, isComputerSeat, cardPts, getValidIdxs, sortHand, unplayedPenaltyCards,
 } from "../shared/game/cards.js";
 import {
   dealRound, applyCard, autoApplyAllQuetsch,
@@ -54,19 +54,30 @@ const Btn = ({children,onClick,full,disabled,style={}}) => (
 
 const bg={minHeight:'100vh',background:'radial-gradient(ellipse at 50% 0%,#1d5c40 0%,#0f3422 40%,#061910 100%)',fontFamily:'Georgia,serif',color:'white'};
 
-function PenaltyInfo({penaltyPlayed}) {
-  const sau=penaltyPlayed.find(c=>c.s==='S'&&c.v===12);
-  const hearts=penaltyPlayed.filter(c=>c.s==='H').sort((a,b)=>a.v-b.v);
+function PenaltyInfo({penaltyPlayed = [], trick = []}) {
+  const stillOpen = unplayedPenaltyCards(penaltyPlayed, trick);
+  const openSau = stillOpen.find(c=>c.s==='S'&&c.v===12);
+  const openHearts = stillOpen.filter(c=>c.s==='H').sort((a,b)=>a.v-b.v);
+  const playedSau=penaltyPlayed.find(c=>c.s==='S'&&c.v===12);
+  const playedHearts=penaltyPlayed.filter(c=>c.s==='H').sort((a,b)=>a.v-b.v);
+  const Chip = ({card, muted=false}) => (
+    <span style={{background:card.s==='S'?'rgba(139,0,0,0.5)':muted?'rgba(255,255,255,0.06)':'rgba(192,57,43,0.22)',border:card.s==='S'?'1px solid rgba(192,57,43,0.7)':muted?'1px solid rgba(255,255,255,0.12)':'1px solid rgba(192,57,43,0.4)',borderRadius:6,padding:'2px 6px',fontSize:12,fontWeight:'bold',color:muted?'rgba(255,255,255,0.42)':card.s==='S'?'#ffb3b3':'#ff9090'}}>
+      {card.s==='S'?'🐷♠Q':`♥${VN(card.v)}`}
+    </span>
+  );
   return (
-    <div style={{background:'rgba(0,0,0,0.3)',borderTop:'1px solid rgba(255,255,255,0.06)',padding:'6px 14px',display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',flexShrink:0,minHeight:34}}>
-      <span style={{fontSize:11,color:'rgba(255,255,255,0.32)',letterSpacing:0.5,marginRight:2}}>GESPIELT:</span>
-      {penaltyPlayed.length===0&&<span style={{fontSize:11,color:'rgba(255,255,255,0.2)'}}>— noch keine Strafkarte —</span>}
-      {sau&&<span style={{background:'rgba(139,0,0,0.5)',border:'1px solid rgba(192,57,43,0.7)',borderRadius:6,padding:'2px 7px',fontSize:12,fontWeight:'bold',color:'#ffb3b3'}}>🐷♠Q (−35)</span>}
-      {hearts.map((c,i)=>(
-        <span key={i} style={{background:'rgba(192,57,43,0.22)',border:'1px solid rgba(192,57,43,0.4)',borderRadius:6,padding:'2px 6px',fontSize:12,fontWeight:'bold',color:'#ff9090'}}>
-          ♥{VN(c.v)}
-        </span>
-      ))}
+    <div style={{background:'rgba(0,0,0,0.3)',borderTop:'1px solid rgba(255,255,255,0.06)',padding:'6px 14px',display:'grid',gap:5,flexShrink:0,minHeight:34}}>
+      <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+        <span style={{fontSize:11,color:'rgba(255,255,255,0.42)',letterSpacing:0.5,marginRight:2}}>NOCH OFFEN:</span>
+        {stillOpen.length===0&&<span style={{fontSize:11,color:'rgba(255,255,255,0.24)'}}>— keine Strafkarte mehr offen —</span>}
+        {openSau&&<Chip card={openSau}/>} {openHearts.map((c,i)=><Chip key={`${c.s}${c.v}-${i}`} card={c}/>) }
+      </div>
+      {(playedSau||playedHearts.length>0)&&(
+        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+          <span style={{fontSize:10,color:'rgba(255,255,255,0.24)',letterSpacing:0.5,marginRight:2}}>GESPIELT:</span>
+          {playedSau&&<Chip card={playedSau} muted/>} {playedHearts.map((c,i)=><Chip key={`p-${c.s}${c.v}-${i}`} card={c} muted/>) }
+        </div>
+      )}
     </div>
   );
 }
@@ -509,7 +520,7 @@ export default function App() {
         <div style={{...bg,display:'flex',flexDirection:'column'}}>
           <Header/>
           <ScoreBar names={names} seatTypes={seatTypes} gs={gs} runScores={runScores} highlight={cp}/>
-          <PenaltyInfo penaltyPlayed={gs.penaltyPlayed}/>
+          <PenaltyInfo penaltyPlayed={gs.penaltyPlayed} trick={gs.trick}/>
           <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}>
             <div style={{fontSize:64}}>🤖</div>
             <div style={{color:'#f4c430',fontSize:22,fontWeight:'bold'}}>{names[cp]} denkt…</div>
@@ -529,7 +540,7 @@ export default function App() {
       <div style={{...bg,display:'flex',flexDirection:'column'}}>
         <Header/>
         <ScoreBar names={names} seatTypes={seatTypes} gs={gs} runScores={runScores}/>
-        <PenaltyInfo penaltyPlayed={gs.penaltyPlayed}/>
+        <PenaltyInfo penaltyPlayed={gs.penaltyPlayed} trick={gs.trick}/>
         <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
           <div style={{textAlign:'center',maxWidth:360}}>
             <div style={{width:72,height:72,borderRadius:'50%',background:'rgba(244,196,48,0.15)',border:'2px solid rgba(244,196,48,0.4)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',fontSize:32}}>📱</div>
@@ -553,7 +564,7 @@ export default function App() {
       <div style={{...bg,display:'flex',flexDirection:'column'}}>
         <Header/>
         <ScoreBar names={names} seatTypes={seatTypes} gs={gs} runScores={runScores} highlight={cp}/>
-        <PenaltyInfo penaltyPlayed={gs.penaltyPlayed}/>
+        <PenaltyInfo penaltyPlayed={gs.penaltyPlayed} trick={gs.trick}/>
         <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'12px'}}>
           <div style={{background:'rgba(0,0,0,0.28)',borderRadius:16,border:'1px solid rgba(255,255,255,0.09)',padding:'14px 18px',width:'100%',maxWidth:400}}>
             <div style={{textAlign:'center',fontSize:12,color:'#6dbf8a',marginBottom:12,letterSpacing:0.5}}>
@@ -599,7 +610,7 @@ export default function App() {
     <div style={{...bg,display:'flex',flexDirection:'column'}}>
       <Header/>
       <ScoreBar names={names} seatTypes={seatTypes} gs={gs} runScores={runScores}/>
-      <PenaltyInfo penaltyPlayed={gs.penaltyPlayed}/>
+      <PenaltyInfo penaltyPlayed={gs.penaltyPlayed} trick={gs.trick}/>
       <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
         <div style={{textAlign:'center',maxWidth:420,width:'100%'}}>
           <div style={{fontSize:36,marginBottom:10}}>{lastTrick.pts>=0?'🎉':lastTrick.pts<=-30?'💀':'😬'}</div>
