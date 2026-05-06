@@ -12,44 +12,6 @@ const page = {
   boxSizing: "border-box",
 };
 
-// Wuzz tweak: old German first-name pool for humans and bots.
-const OLD_GERMAN_FIRST_NAMES = [
-  "Friedrich",
-  "Leopold",
-  "Wilhelm",
-  "Heinrich",
-  "Albert",
-  "Otto",
-  "Constantin",
-  "Theodor",
-  "Maximilian",
-  "Ludwig",
-  "Adelheid",
-  "Mathilde",
-  "Clementine",
-  "Ottilie",
-  "Therese",
-  "Wilhelmine",
-  "Auguste",
-  "Eleonore",
-  "Elisabeth",
-  "Friederike"
-];
-const randomFirstName = (used = []) => {
-  const usedBase = new Set(used.map(n => String(n || '').replace(/\s*\(B\)$/, '')));
-  const available = OLD_GERMAN_FIRST_NAMES.filter(n => !usedBase.has(n));
-  const pool = available.length ? available : OLD_GERMAN_FIRST_NAMES;
-  return pool[Math.floor(Math.random() * pool.length)];
-};
-const randomBotName = (used = []) => randomFirstName(used) + ' (B)';
-const randomLocalSeatNames = () => {
-  const human = randomFirstName();
-  const names = [human];
-  while (names.length < 4) names.push(randomBotName(names));
-  return names;
-};
-
-
 const panel = {
   maxWidth: 860,
   margin: "0 auto",
@@ -109,8 +71,7 @@ function CardFace({ card, highlighted, dimmed, selected, onClick, size = "md" })
   const sfs = size === "sm" ? 18 : 26;
   const isSau = card.s === "S" && card.v === 12;
   const red = isRed(card.s);
-  const color = red ? '#C0392B' : '#1a1a2e';
-  const queenSpadesGlow = isSau ? '0 0 0 2px rgba(248,113,113,0.9), 0 0 18px rgba(248,113,113,0.95), 0 6px 12px rgba(0,0,0,0.25)' : undefined;
+  const color = isSau ? "#7B0000" : red ? "#C0392B" : "#1a1a2e";
 
   return (
     <div
@@ -177,7 +138,7 @@ function cardId(card) {
   return `${card.s}${card.v}`;
 }
 
-const RECONNECT_KEY = "wuzzReconnect";
+const RECONNECT_KEY = "schwarzeSauReconnect";
 
 function saveReconnect(roomCode, reconnectToken) {
   if (!roomCode || !reconnectToken) return;
@@ -214,7 +175,7 @@ function ScoreStrip({ game }) {
             {game.seatTypes[i] === "human" ? "👤" : "🧠"} {name} {i === game.dealer ? "(G)" : ""}
           </div>
           <div style={{ fontSize: 21, fontWeight: "bold", color: i === game.currentPlayer ? "#f4c430" : "white" }}>{game.runScores[i]}</div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{game.tricksWon[i]}✦ · R {game.roundPts[i] >= 0 ? "+" : ""}{game.roundPts[i]}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{game.tricksWon[i]}✦</div>
         </div>
       ))}
     </div>
@@ -477,7 +438,7 @@ function OnlineGame({ room, game, setError }) {
         </div>
       )}
 
-        {(game.phase === "play" || game.phase === "trick_done") && (
+      {game.phase === "play" && (
         <div style={{ marginTop: 22 }}>
           <div style={{ textAlign: "center", color: "#6dbf8a", marginBottom: 10 }}>
             Stich {game.tricksPlayed + 1}/13 {game.leadSuit ? `· Angespielt: ${SYM[game.leadSuit]}` : ""}
@@ -527,7 +488,7 @@ function OnlineGame({ room, game, setError }) {
 export default function OnlineLobby({ onBack }) {
   const [connected, setConnected] = useState(socket.connected);
   const [socketId, setSocketId] = useState(socket.id || null);
-  const [name, setName] = useState(localStorage.getItem("wuzzName") || randomFirstName());
+  const [name, setName] = useState(localStorage.getItem("schwarzeSauName") || "Axel");
   const [joinCode, setJoinCode] = useState("");
   const [room, setRoom] = useState(null);
   const [game, setGame] = useState(null);
@@ -601,7 +562,7 @@ export default function OnlineLobby({ onBack }) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("wuzzName", name);
+    localStorage.setItem("schwarzeSauName", name);
   }, [name]);
 
   const isHost = useMemo(() => {

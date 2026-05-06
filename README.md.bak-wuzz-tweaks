@@ -1,6 +1,6 @@
-# Wuzz Online
+# Schwarze Sau Online
 
-Render-ready multiplayer version of the Wuzz heuristic-bot app.
+Render-ready multiplayer version of the Schwarze-Sau heuristic-bot app.
 
 ## Local development
 
@@ -40,7 +40,6 @@ Suggested environment variables:
 NODE_ENV=production
 ROOM_TTL_MS=1800000
 BOT_DELAY_MS=650
-TRICK_REVIEW_MS=1400
 EXPIRY_SWEEP_MS=60000
 QUETSCH_REVIEW_MS=2600
 ```

@@ -1,4 +1,4 @@
-# Wuzz local heuristic migration — steps 2 and 3
+# Schwarze Sau local heuristic migration — steps 2 and 3
 
 This bundle extracts the game logic and heuristic bot from the React component and verifies that a complete local 4-heuristic-player match can run without React and without any bot server.
 

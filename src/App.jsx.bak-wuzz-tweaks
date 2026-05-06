@@ -14,8 +14,7 @@ function CardFace({card,highlighted,dimmed,selected,onClick,size='md'}) {
   const fs=size==='sm'?11:13, sfs=size==='sm'?18:26;
   const isSau=card.s==='S'&&card.v===12;
   const red=isRed(card.s);
-  const color = red ? '#C0392B' : '#1a1a2e';
-  const queenSpadesGlow = isSau ? '0 0 0 2px rgba(248,113,113,0.9), 0 0 18px rgba(248,113,113,0.95), 0 6px 12px rgba(0,0,0,0.25)' : undefined;
+  const color=isSau?'#7B0000':red?'#C0392B':'#1a1a2e';
   return (
     <div onClick={onClick} style={{
       width:w,height:h,
@@ -55,44 +54,6 @@ const Btn = ({children,onClick,full,disabled,style={}}) => (
 
 const bg={minHeight:'100vh',background:'radial-gradient(ellipse at 50% 0%,#1d5c40 0%,#0f3422 40%,#061910 100%)',fontFamily:'Georgia,serif',color:'white'};
 
-// Wuzz tweak: old German first-name pool for humans and bots.
-const OLD_GERMAN_FIRST_NAMES = [
-  "Friedrich",
-  "Leopold",
-  "Wilhelm",
-  "Heinrich",
-  "Albert",
-  "Otto",
-  "Constantin",
-  "Theodor",
-  "Maximilian",
-  "Ludwig",
-  "Adelheid",
-  "Mathilde",
-  "Clementine",
-  "Ottilie",
-  "Therese",
-  "Wilhelmine",
-  "Auguste",
-  "Eleonore",
-  "Elisabeth",
-  "Friederike"
-];
-const randomFirstName = (used = []) => {
-  const usedBase = new Set(used.map(n => String(n || '').replace(/\s*\(B\)$/, '')));
-  const available = OLD_GERMAN_FIRST_NAMES.filter(n => !usedBase.has(n));
-  const pool = available.length ? available : OLD_GERMAN_FIRST_NAMES;
-  return pool[Math.floor(Math.random() * pool.length)];
-};
-const randomBotName = (used = []) => randomFirstName(used) + ' (B)';
-const randomLocalSeatNames = () => {
-  const human = randomFirstName();
-  const names = [human];
-  while (names.length < 4) names.push(randomBotName(names));
-  return names;
-};
-
-
 function PenaltyInfo({penaltyPlayed = [], trick = []}) {
   const stillOpen = unplayedPenaltyCards(penaltyPlayed, trick);
   const openSau = stillOpen.find(c=>c.s==='S'&&c.v===12);
@@ -130,7 +91,7 @@ function ScoreBar({names,seatTypes,gs,runScores,highlight}) {
             {seatTypes[i]==='human'?'👤 ':seatTypes[i]==='heuristic'?'🧠 ':'🤖 '}{n}{i===gs.dealer?'(G)':''}
           </div>
           <div style={{fontWeight:'bold',fontSize:14,color:i===highlight?'#f4c430':'white'}}>{runScores[i]}</div>
-          <div style={{fontSize:10,color:'rgba(255,255,255,0.4)'}}>{gs.tricksWon[i]}✦ · R {gs.roundPts[i] >= 0 ? "+" : ""}{gs.roundPts[i]}</div>
+          <div style={{fontSize:10,color:'rgba(255,255,255,0.4)'}}>{gs.tricksWon[i]}✦</div>
         </div>
       ))}
     </div>
@@ -150,7 +111,7 @@ function QuetschSelect({names,quetschStep,hand,onConfirm}) {
   return (
     <div style={{...bg,display:'flex',flexDirection:'column'}}>
       <div style={{background:'rgba(0,0,0,0.5)',padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
-        <span style={{color:'#f4c430',fontWeight:'bold',fontSize:17,letterSpacing:1}}>🐷 Wuzz</span>
+        <span style={{color:'#f4c430',fontWeight:'bold',fontSize:17,letterSpacing:1}}>🐷 Schwarze Sau</span>
         <span style={{background:'rgba(244,196,48,0.15)',border:'1px solid rgba(244,196,48,0.35)',borderRadius:8,padding:'3px 12px',fontSize:12,color:'#f4c430'}}>QUETSCH {quetschStep+1}/4</span>
       </div>
       <div style={{flexShrink:0,background:'rgba(0,0,0,0.4)',padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
@@ -201,7 +162,7 @@ function BotThinking({name}) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [names,setNames] = useState(() => randomLocalSeatNames());
+  const [names,setNames]     = useState(['Anna','Ben','Cara','David']);
   const [seatTypes,setSeatTypes] = useState(['human','heuristic','heuristic','heuristic']);
   const isBot = seatTypes.map(isComputerSeat);
   const [screen,setScreen]   = useState('welcome');
@@ -217,7 +178,6 @@ export default function App() {
   const [botBusy,setBotBusy] = useState(false);
   const [botError,setBotError] = useState(null);
   const MAX = 8;
-  const TRICK_DONE_AUTO_ADVANCE_MS = 1400;
 
   // ── Play a card (human or bot) ─────────────────────────────────────────────
   const commitCard = useCallback((prevGs, player, card) => {
@@ -357,13 +317,6 @@ export default function App() {
     setPhase(finalTrick ? 'round_done' : 'pass');
   };
 
-  // Auto-advance after showing a completed trick briefly in the center.
-  useEffect(() => {
-    if (phase !== 'trick_done' || !lastTrick) return;
-    const timer = setTimeout(() => afterTrick(), TRICK_DONE_AUTO_ADVANCE_MS);
-    return () => clearTimeout(timer);
-  }, [phase, lastTrick]);
-
   const afterRound = () => {
     const ns = scores.map((s,i)=>s+gs.roundPts[i]);
     if(round>=MAX) { setScores(ns); setScreen('gameover'); }
@@ -389,7 +342,7 @@ export default function App() {
     <div style={{...bg,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div style={{width:'100%',maxWidth:440,padding:'0 24px',textAlign:'center'}}>
         <div style={{fontSize:56,marginBottom:10}}>🐷</div>
-        <h1 style={{fontSize:42,fontWeight:'bold',letterSpacing:3,color:'#f4c430',margin:'0 0 6px'}}>Wuzz</h1>
+        <h1 style={{fontSize:42,fontWeight:'bold',letterSpacing:3,color:'#f4c430',margin:'0 0 6px'}}>Schwarze Sau</h1>
         <p style={{color:'#6dbf8a',marginBottom:28,fontSize:14,letterSpacing:1}}>Lokales Stichspiel · 4 Spieler · {MAX} Runden · nur Heuristik-Bots</p>
 
         {/* Player setup */}
@@ -455,7 +408,7 @@ export default function App() {
 
   const Header = () => (
     <div style={{background:'rgba(0,0,0,0.5)',padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
-      <span style={{color:'#f4c430',fontWeight:'bold',fontSize:17,letterSpacing:1}}>🐷 Wuzz</span>
+      <span style={{color:'#f4c430',fontWeight:'bold',fontSize:17,letterSpacing:1}}>🐷 Schwarze Sau</span>
       <span style={{color:'#6dbf8a',fontSize:13}}>Runde {round} / {MAX}</span>
     </div>
   );
@@ -618,14 +571,12 @@ export default function App() {
               Stich {gs.tricksPlayed+1} von 13
               {gs.leadSuit&&<span style={{marginLeft:8,color:'rgba(255,255,255,0.7)'}}>· Angespielt: {SYM[gs.leadSuit]}</span>}
             </div>
-            <div style={{display:'flex',gap:16,justifyContent:'center',minHeight:92,alignItems:'flex-start',flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:10,justifyContent:'center',minHeight:81,alignItems:'center',flexWrap:'wrap'}}>
               {gs.trick.length===0
                 ?<span style={{color:'rgba(255,255,255,0.2)',fontSize:14}}>Noch keine Karte gespielt</span>
                 :gs.trick.map(({player:p,card},i)=>(
-                  <div key={i} style={{width:86,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
-                    <div title={names[p]} style={{width:'100%',fontSize:10,color:'#6dbf8a',marginBottom:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                      {seatTypes[p]==='human'?'👤':seatTypes[p]==='heuristic'?'🧠':'🤖'} {names[p]}
-                    </div>
+                  <div key={i} style={{textAlign:'center'}}>
+                    <div style={{fontSize:10,color:'#6dbf8a',marginBottom:4}}>{seatTypes[p]==='human'?'👤':seatTypes[p]==='heuristic'?'🧠':'🤖'} {names[p]}</div>
                     <CardFace card={card}/>
                   </div>
                 ))
@@ -670,10 +621,10 @@ export default function App() {
           <p style={{fontSize:26,fontWeight:'bold',color:lastTrick.pts>=0?'#4ade80':'#f87171',margin:'0 0 20px'}}>
             {lastTrick.pts>=0?'+':''}{lastTrick.pts} Punkte
           </p>
-          <div style={{display:'flex',gap:14,justifyContent:'center',flexWrap:'wrap',marginBottom:24,background:'rgba(0,0,0,0.2)',borderRadius:12,padding:'12px'}}>
+          <div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap',marginBottom:24,background:'rgba(0,0,0,0.2)',borderRadius:12,padding:'12px'}}>
             {lastTrick.trick.map(({player:p,card},i)=>(
-              <div key={i} style={{width:72,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
-                <div title={names[p]} style={{width:'100%',fontSize:10,color:'#6dbf8a',marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{names[p]}</div>
+              <div key={i} style={{textAlign:'center'}}>
+                <div style={{fontSize:10,color:'#6dbf8a',marginBottom:4}}>{names[p]}</div>
                 <CardFace card={card} size='sm'/>
                 <div style={{fontSize:10,color:cardPts(card)<0?'#f87171':'rgba(255,255,255,0.4)',marginTop:3}}>
                   {cardPts(card)!==0?(cardPts(card)>0?'+':'')+cardPts(card):''}

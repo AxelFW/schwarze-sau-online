@@ -477,7 +477,24 @@ function OnlineGame({ room, game, setError }) {
         </div>
       )}
 
-        {(game.phase === "play" || game.phase === "trick_done") && (
+        {game.phase === "trick_done" && (
+          <div>
+            <h3>{game.lastTrick?.isFinal ? "Letzter Stich" : "Stich abgeschlossen"}</h3>
+            <p style={{ color: (game.lastTrick?.pts ?? 0) >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>
+              {game.names[game.lastTrick?.winner]} sticht: {game.lastTrick?.pts >= 0 ? "+" : ""}{game.lastTrick?.pts} Punkte
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+              {(game.lastTrick?.trick || game.trick || []).map(({ player, card }, idx) => (
+                <div key={idx} style={{ textAlign: "center" }}>
+                  <CardFace card={card} size="sm" />
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>{game.names[player]}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {game.phase === "play" && (
         <div style={{ marginTop: 22 }}>
           <div style={{ textAlign: "center", color: "#6dbf8a", marginBottom: 10 }}>
             Stich {game.tricksPlayed + 1}/13 {game.leadSuit ? `· Angespielt: ${SYM[game.leadSuit]}` : ""}

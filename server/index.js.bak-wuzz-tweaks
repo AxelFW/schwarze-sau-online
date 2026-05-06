@@ -39,7 +39,7 @@ const app = express();
 app.use(cors({ origin: NODE_ENV === "production" ? false : true }));
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true, service: "wuzz-online", env: NODE_ENV });
+  res.json({ ok: true, service: "schwarze-sau-online", env: NODE_ENV });
 });
 
 if (NODE_ENV === "production") {
@@ -102,7 +102,7 @@ function scheduleAdvance(roomCode, immediate = false) {
       emitRoomAndGame(room);
       const moved = advanceOneBotCard(room);
       emitRoomAndGame(room);
-      if (room.status === "playing" && (room.game?.phase === "quetsch_review" || room.game?.phase === "trick_done")) {
+      if (room.status === "playing" && room.game?.phase === "quetsch_review") {
         scheduleAdvance(roomCode, false);
       } else if (moved && room.status === "playing" && room.game?.phase !== "gameover") {
         scheduleAdvance(roomCode, false);
@@ -125,7 +125,7 @@ io.on("connection", (socket) => {
 
   socket.emit("serverHello", {
     socketId: socket.id,
-    message: "Mit dem Wuzz-Server verbunden.",
+    message: "Mit dem Schwarze-Sau-Server verbunden.",
   });
 
   socket.on("createRoom", (payload = {}, ack) => {
@@ -290,5 +290,5 @@ setInterval(() => {
 }, EXPIRY_SWEEP_MS).unref?.();
 
 httpServer.listen(PORT, () => {
-  log(`Wuzz-Server läuft`, { port: PORT, env: NODE_ENV, botDelayMs: BOT_DELAY_MS });
+  log(`Schwarze-Sau-Server läuft`, { port: PORT, env: NODE_ENV, botDelayMs: BOT_DELAY_MS });
 });

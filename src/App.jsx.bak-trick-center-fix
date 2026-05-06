@@ -618,14 +618,12 @@ export default function App() {
               Stich {gs.tricksPlayed+1} von 13
               {gs.leadSuit&&<span style={{marginLeft:8,color:'rgba(255,255,255,0.7)'}}>· Angespielt: {SYM[gs.leadSuit]}</span>}
             </div>
-            <div style={{display:'flex',gap:16,justifyContent:'center',minHeight:92,alignItems:'flex-start',flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:10,justifyContent:'center',minHeight:81,alignItems:'center',flexWrap:'wrap'}}>
               {gs.trick.length===0
                 ?<span style={{color:'rgba(255,255,255,0.2)',fontSize:14}}>Noch keine Karte gespielt</span>
                 :gs.trick.map(({player:p,card},i)=>(
-                  <div key={i} style={{width:86,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
-                    <div title={names[p]} style={{width:'100%',fontSize:10,color:'#6dbf8a',marginBottom:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                      {seatTypes[p]==='human'?'👤':seatTypes[p]==='heuristic'?'🧠':'🤖'} {names[p]}
-                    </div>
+                  <div key={i} style={{textAlign:'center'}}>
+                    <div style={{fontSize:10,color:'#6dbf8a',marginBottom:4}}>{seatTypes[p]==='human'?'👤':seatTypes[p]==='heuristic'?'🧠':'🤖'} {names[p]}</div>
                     <CardFace card={card}/>
                   </div>
                 ))
@@ -670,10 +668,10 @@ export default function App() {
           <p style={{fontSize:26,fontWeight:'bold',color:lastTrick.pts>=0?'#4ade80':'#f87171',margin:'0 0 20px'}}>
             {lastTrick.pts>=0?'+':''}{lastTrick.pts} Punkte
           </p>
-          <div style={{display:'flex',gap:14,justifyContent:'center',flexWrap:'wrap',marginBottom:24,background:'rgba(0,0,0,0.2)',borderRadius:12,padding:'12px'}}>
+          <div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap',marginBottom:24,background:'rgba(0,0,0,0.2)',borderRadius:12,padding:'12px'}}>
             {lastTrick.trick.map(({player:p,card},i)=>(
-              <div key={i} style={{width:72,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
-                <div title={names[p]} style={{width:'100%',fontSize:10,color:'#6dbf8a',marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{names[p]}</div>
+              <div key={i} style={{textAlign:'center'}}>
+                <div style={{fontSize:10,color:'#6dbf8a',marginBottom:4}}>{names[p]}</div>
                 <CardFace card={card} size='sm'/>
                 <div style={{fontSize:10,color:cardPts(card)<0?'#f87171':'rgba(255,255,255,0.4)',marginTop:3}}>
                   {cardPts(card)!==0?(cardPts(card)>0?'+':'')+cardPts(card):''}

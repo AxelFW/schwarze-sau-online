@@ -17,7 +17,6 @@ export const dealRound = (dealer, rng = Math.random) => {
     roundPts: [0, 0, 0, 0],
     tricksWon: [0, 0, 0, 0],
     penaltyPlayed: [],
-    negativeTrickSuits: [],
     trickHistory: [],
     quetschPassedLeft: [[], [], [], []],
     knownVoids: [0, 1, 2, 3].map(() => [false, false, false, false]), // C/D/H/S
@@ -51,9 +50,6 @@ export const applyCard = (prevGs, player, card) => {
       roundPts: prevGs.roundPts.map((v, i) => i === winner ? v + net : v),
       tricksWon: prevGs.tricksWon.map((v, i) => i === winner ? v + 1 : v),
       penaltyPlayed: [...prevGs.penaltyPlayed, ...newTrick.map(x => x.card).filter(isPenalty)],
-      negativeTrickSuits: net < 0
-        ? [...new Set([...(prevGs.negativeTrickSuits ?? []), newLeadSuit])]
-        : [...(prevGs.negativeTrickSuits ?? [])],
       trickHistory: [...prevGs.trickHistory, ...newTrick.map(x => x.card)],
       knownVoids: newKnownVoids,
       currentPlayer: winner,

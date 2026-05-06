@@ -526,39 +526,15 @@ const spadeFollowCandidates = (cards, gs, player) => {
   return cards;
 };
 
-const stillUnplayedCardsOfSuit = (gs, suit) => {
-  const played = new Set([...completedCards(gs), ...trickCards(gs)].map(cardKey));
-  return cardsOfSuit(suit).filter(c => !played.has(cardKey(c)));
-};
-const isLowestStillUnplayedInSuit = (card, gs) => !stillUnplayedCardsOfSuit(gs, card.s).some(c => c.v < card.v);
-const hasHigherUnplayedOutsideOwnHand = (card, gs, player) => unseenCardsOfSuit(gs, player, card.s).some(c => c.v > card.v);
-const negativeTrickSuitSet = gs => new Set(gs.negativeTrickSuits ?? []);
 const midgameLeadCandidates = (cards, gs, player) => {
   if(!cards.length) return [];
-  const badSuits = negativeTrickSuitSet(gs);
-
-  // If a suit has already produced a net-negative trick for anyone, only
-  // reopen it directly when we can safely bleed the current lowest unplayed
-  // card and at least one higher outside card can still overtake it.
-  const safeBleeds = cards.filter(c =>
-    badSuits.has(c.s) &&
-    isLowestStillUnplayedInSuit(c, gs) &&
-    hasHigherUnplayedOutsideOwnHand(c, gs, player)
-  );
-  if(safeBleeds.length) return smallestCards(safeBleeds);
-
-  // Otherwise avoid suits that have already produced a bad trick, but only as
-  // a soft preference inside cautious midgame play.
-  const nonNegativeSuitCards = cards.filter(c => !badSuits.has(c.s));
-  if(nonNegativeSuitCards.length) cards = nonNegativeSuitCards;
-
-  // Prefer cards that can still be beaten. If that empties the set, fall back
-  // to the normal lowest-card cautious play.
-  const beatable = cards.filter(c => hasHigherUnplayedOutsideOwnHand(c, gs, player));
-  if(beatable.length) cards = beatable;
-
-  return smallestCards(cards);
+  const mins = smallestCards(cards);
+  if(mins.length === 1) return mins;
+  const scores = mins.map(c => highUnplayedCount(gs, player, c.s));
+  const maxScore = Math.max(...scores);
+  return mins.filter((_, i) => scores[i] === maxScore);
 };
+
 export const chooseHeuristicCard = (gs, player) => {
   const hand = gs.hands[player];
   const valid = getValidIdxs(hand, gs.leadSuit).map(i => hand[i]);
