@@ -13,8 +13,7 @@ const rooms = new Map();
 const MAX_ROUNDS = 8;
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS || 30 * 60 * 1000);
 const QUETSCH_REVIEW_MS = Number(process.env.QUETSCH_REVIEW_MS || 2600);
-// Delay after the fourth card of a trick is visible before the next trick starts.
-const TRICK_REVIEW_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRICK_REVIEW_MS || 1400);
+const TRICK_REVIEW_MS = Number(process.env.TRICK_REVIEW_MS || 1400);
 
 // Wuzz tweak: old German first-name pool for bot seats.
 const BOT_FIRST_NAMES = [

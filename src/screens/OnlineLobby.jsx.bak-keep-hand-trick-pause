@@ -510,23 +510,23 @@ function OnlineGame({ room, game, setError }) {
                 {game.currentPlayer === game.yourSeat ? "Du bist am Zug" : `${game.names[game.currentPlayer]} ist am Zug`}
               </h3>
               {game.leadSuit && <div style={{ color: "#9dcfb0", textAlign: "center", marginBottom: 8 }}>Bedienen: {SYM[game.leadSuit]}</div>}
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8 }}>
+                {game.hand.map((card) => {
+                  const canPlay = game.currentPlayer === game.yourSeat && validHas(card);
+                  return (
+                    <CardFace
+                      key={cardId(card)}
+                      card={card}
+                      highlighted={canPlay}
+                      dimmed={game.currentPlayer === game.yourSeat && !validHas(card)}
+                      onClick={canPlay ? () => playCard(card) : null}
+                    />
+                  );
+                })}
+              </div>
             </>
           )}
-
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8, marginTop: isTrickPause ? 18 : 0 }}>
-            {game.hand.map((card) => {
-              const canPlay = !isTrickPause && game.currentPlayer === game.yourSeat && validHas(card);
-              return (
-                <CardFace
-                  key={cardId(card)}
-                  card={card}
-                  highlighted={canPlay}
-                  dimmed={!isTrickPause && game.currentPlayer === game.yourSeat && !validHas(card)}
-                  onClick={canPlay ? () => playCard(card) : null}
-                />
-              );
-            })}
-          </div>
         </div>
       )}
     </div>

@@ -345,11 +345,6 @@ function OnlineGame({ room, game, setError }) {
     if (!res?.ok) setError(res?.message || "Nächste Runde konnte nicht gestartet werden.");
   }
 
-  const isTrickPause = game.phase === "trick_done";
-  const displayedTrickNo = isTrickPause
-    ? Math.min(game.tricksPlayed || 1, 13)
-    : Math.min((game.tricksPlayed || 0) + 1, 13);
-
   if (game.phase === "gameover") {
     const ranked = game.names
       .map((name, seat) => ({ name, seat, score: game.scores[seat], type: game.seatTypes[seat] }))
@@ -485,7 +480,7 @@ function OnlineGame({ room, game, setError }) {
         {(game.phase === "play" || game.phase === "trick_done") && (
         <div style={{ marginTop: 22 }}>
           <div style={{ textAlign: "center", color: "#6dbf8a", marginBottom: 10 }}>
-            Stich {displayedTrickNo}/13 {game.leadSuit ? `· Angespielt: ${SYM[game.leadSuit]}` : ""}
+            Stich {game.tricksPlayed + 1}/13 {game.leadSuit ? `· Angespielt: ${SYM[game.leadSuit]}` : ""}
           </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap", minHeight: 105, padding: 14, borderRadius: 14, background: "rgba(0,0,0,0.2)" }}>
@@ -504,24 +499,20 @@ function OnlineGame({ room, game, setError }) {
             )}
           </div>
 
-          {!isTrickPause && (
-            <>
-              <h3 style={{ color: "#f4c430", textAlign: "center", marginTop: 18 }}>
-                {game.currentPlayer === game.yourSeat ? "Du bist am Zug" : `${game.names[game.currentPlayer]} ist am Zug`}
-              </h3>
-              {game.leadSuit && <div style={{ color: "#9dcfb0", textAlign: "center", marginBottom: 8 }}>Bedienen: {SYM[game.leadSuit]}</div>}
-            </>
-          )}
+          <h3 style={{ color: "#f4c430", textAlign: "center", marginTop: 18 }}>
+            {game.currentPlayer === game.yourSeat ? "Du bist am Zug" : `${game.names[game.currentPlayer]} ist am Zug`}
+          </h3>
+          {game.leadSuit && <div style={{ color: "#9dcfb0", textAlign: "center", marginBottom: 8 }}>Bedienen: {SYM[game.leadSuit]}</div>}
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8, marginTop: isTrickPause ? 18 : 0 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8 }}>
             {game.hand.map((card) => {
-              const canPlay = !isTrickPause && game.currentPlayer === game.yourSeat && validHas(card);
+              const canPlay = game.currentPlayer === game.yourSeat && validHas(card);
               return (
                 <CardFace
                   key={cardId(card)}
                   card={card}
                   highlighted={canPlay}
-                  dimmed={!isTrickPause && game.currentPlayer === game.yourSeat && !validHas(card)}
+                  dimmed={game.currentPlayer === game.yourSeat && !validHas(card)}
                   onClick={canPlay ? () => playCard(card) : null}
                 />
               );
