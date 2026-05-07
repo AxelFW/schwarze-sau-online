@@ -270,7 +270,7 @@ io.on("connection", (socket) => {
       const result = leaveRoom({ roomCode: payload.roomCode, socketId: socket.id });
       socket.leave(String(payload.roomCode || "").trim().toUpperCase());
       if (result.closed) {
-        io.to(result.roomCode).emit("roomClosed", { message: "Der Host hat die Lobby verlassen. Der Raum wurde geschlossen." });
+        io.to(result.roomCode).emit("roomClosed", { message: "Der Host hat die Lobby verlassen. Der Tisch wurde geschlossen." });
       } else {
         emitRoomAndGameByCode(result.room.roomCode);
         scheduleAdvance(result.room.roomCode, true);
@@ -302,7 +302,7 @@ io.on("connection", (socket) => {
 
 setInterval(() => {
   for (const roomCode of pruneExpiredRooms()) {
-    io.to(roomCode).emit("roomClosed", { message: "Der Raum wurde wegen Inaktivität geschlossen." });
+    io.to(roomCode).emit("roomClosed", { message: "Der Tisch wurde wegen Inaktivität geschlossen." });
   }
 }, EXPIRY_SWEEP_MS).unref?.();
 

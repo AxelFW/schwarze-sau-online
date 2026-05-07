@@ -14,26 +14,26 @@ const page = {
 
 // Wuzz tweak: old German first-name pool for humans and bots.
 const OLD_GERMAN_FIRST_NAMES = [
-  "Friedrich",
+  "Ferdi",
   "Leopold",
   "Wilhelm",
   "Heinrich",
   "Albert",
   "Otto",
-  "Constantin",
-  "Theodor",
-  "Maximilian",
+  "Peter",
+  "Thomas",
+  "Michi",
   "Ludwig",
   "Adelheid",
   "Mathilde",
-  "Clementine",
+  "Gerhild",
   "Ottilie",
   "Therese",
-  "Wilhelmine",
+  "Oda",
   "Auguste",
-  "Eleonore",
-  "Elisabeth",
-  "Friederike"
+  "Ursula",
+  "Else",
+  "Ingrid"
 ];
 const randomFirstName = (used = []) => {
   const usedBase = new Set(used.map(n => String(n || '').replace(/\s*\(B\)$/, '')));
@@ -435,7 +435,7 @@ function OnlineGame({ room, game, setError }) {
     <div style={{ marginTop: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: "rgba(255,255,255,0.55)" }}>Raum {room.roomCode}</div>
+          <div style={{ color: "rgba(255,255,255,0.55)" }}>Tisch {room.roomCode}</div>
           <h2 style={{ color: "#f4c430", margin: "4px 0" }}>Wuzz · Spiel {game.round}/{game.maxRounds} · Rutsche {Math.ceil(game.round / 4)}/{game.matchRutschen ?? Math.ceil(game.maxRounds / 4)}</h2>
         </div>
         <div style={{ color: "rgba(255,255,255,0.7)" }}>
@@ -520,7 +520,7 @@ function OnlineGame({ room, game, setError }) {
         {(game.phase === "play" || game.phase === "trick_done") && (
         <div style={{ marginTop: 22 }}>
           <div style={{ textAlign: "center", color: "#6dbf8a", marginBottom: 10 }}>
-            Stich {displayedTrickNo}/13 {game.leadSuit ? `· Angespielt: ${SYM[game.leadSuit]}` : ""}
+            Stich {displayedTrickNo}/13 {game.leadSuit ? `· Ausgespielt: ${SYM[game.leadSuit]}` : ""}
           </div>
 
           <div style={{ display: "flex", gap: 16, justifyContent: "center", alignItems: "center", flexWrap: "wrap", minHeight: 105, padding: 14, borderRadius: 14, background: "rgba(0,0,0,0.2)" }}>
@@ -654,7 +654,7 @@ export default function OnlineLobby({ onBack }) {
       setRoom(null);
       setGame(null);
       clearReconnect();
-      setError(payload.message || "Der Raum wurde geschlossen.");
+      setError(payload.message || "Der Tisch wurde geschlossen.");
     };
 
     socket.on("connect", onConnect);
@@ -697,19 +697,19 @@ export default function OnlineLobby({ onBack }) {
     setError("");
     const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker } });
     if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
-    if (!res?.ok) setError(res?.message || "Raum konnte nicht erstellt werden.");
+    if (!res?.ok) setError(res?.message || "Tisch konnte nicht erstellt werden.");
   }
 
   async function joinRoom() {
     setError("");
     const code = joinCode.trim().toUpperCase();
     if (!code) {
-      setError("Bitte gib einen Raumcode ein.");
+      setError("Bitte gib einen Tischcode ein.");
       return;
     }
 
     const res = await emitAck("joinRoom", { roomCode: code, name });
-    if (!res?.ok) setError(res?.message || "Raum konnte nicht betreten werden.");
+    if (!res?.ok) setError(res?.message || "Tisch konnte nicht betreten werden.");
   }
 
   async function claimSeat(seat) {
@@ -843,7 +843,7 @@ export default function OnlineLobby({ onBack }) {
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               <Button onClick={createRoom} disabled={!connected}>
-                Raum erstellen
+                Tisch eröffnen
               </Button>
               <Button onClick={startSoloGame} disabled={!connected}>
                 Spiel alleine
@@ -857,7 +857,7 @@ export default function OnlineLobby({ onBack }) {
               }}
             >
               <label>
-                Raumcode
+                Tischcode
                 <TextInput
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
@@ -867,7 +867,7 @@ export default function OnlineLobby({ onBack }) {
               </label>
               <div style={{ marginTop: 12 }}>
                 <Button onClick={joinRoom} disabled={!connected}>
-                  Raum beitreten
+                  Tisch beitreten
                 </Button>
               </div>
             </div>
@@ -884,7 +884,7 @@ export default function OnlineLobby({ onBack }) {
               }}
             >
               <div>
-                <div style={{ color: "rgba(255,255,255,0.55)" }}>Raumcode</div>
+                <div style={{ color: "rgba(255,255,255,0.55)" }}>Tischcode</div>
                 <div style={{ fontSize: 38, fontWeight: "bold", letterSpacing: 5 }}>
                   {room.roomCode}
                 </div>

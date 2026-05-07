@@ -21,26 +21,26 @@ const FINAL_TRICK_DISPLAY_MS = Number(process.env.FINAL_TRICK_DISPLAY_MS || Math
 
 // Wuzz tweak: old German first-name pool for bot seats.
 const BOT_FIRST_NAMES = [
-  "Friedrich",
+  "Ferdi",
   "Leopold",
   "Wilhelm",
   "Heinrich",
   "Albert",
   "Otto",
-  "Constantin",
-  "Theodor",
-  "Maximilian",
+  "Peter",
+  "Thomas",
+  "Michi",
   "Ludwig",
   "Adelheid",
   "Mathilde",
-  "Clementine",
+  "Gerhild",
   "Ottilie",
   "Therese",
-  "Wilhelmine",
+  "Oda",
   "Auguste",
-  "Eleonore",
-  "Elisabeth",
-  "Friederike"
+  "Ursula",
+  "Else",
+  "Ingrid"
 ];
 function randomBotName(room) {
   const usedBase = new Set((room?.seats || []).map(s => String(s.name || '').replace(/\s*\(B\)$/, '')));
@@ -61,7 +61,7 @@ function makeRoomCode() {
     for (let i = 0; i < 4; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
     if (!rooms.has(code)) return code;
   }
-  throw new Error("Kein eindeutiger Raumcode konnte erstellt werden.");
+  throw new Error("Kein eindeutiger Tischcode konnte erstellt werden.");
 }
 
 function makeToken() {
@@ -95,7 +95,7 @@ function normalizeCode(roomCode) {
 function requireRoom(roomCode) {
   const code = normalizeCode(roomCode);
   const room = rooms.get(code);
-  if (!room) throw new Error("Raum nicht gefunden.");
+  if (!room) throw new Error("Tisch nicht gefunden.");
   touch(room);
   return room;
 }
@@ -105,7 +105,7 @@ function requireHost(room, socketId) {
 }
 
 function assertLobby(room) {
-  if (room.status !== "lobby") throw new Error("Der Raum ist nicht mehr in der Lobby.");
+  if (room.status !== "lobby") throw new Error("Der Tisch ist nicht mehr in der Lobby.");
 }
 
 function normalizeMatchRutschen(value) {
@@ -399,7 +399,7 @@ export function createRoom({ hostSocketId, name, settings = {} }) {
     game: null,
   };
   rooms.set(roomCode, room);
-  log("Raum erstellt", { roomCode, hostSocketId });
+  log("Tisch erstellt", { roomCode, hostSocketId });
   return publicRoomWithToken(room, hostSocketId);
 }
 
@@ -495,7 +495,7 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
   if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
   if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
   room.settings = next;
-  log("Raumeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
+  log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
   return publicRoom(room);
 }
 
@@ -521,7 +521,7 @@ export function startNextOnlineRound({ roomCode, socketId }) {
   if (room.game.phase !== "round_done") throw new Error("Die nächste Rutsche kann gerade nicht gestartet werden.");
 
   const seat = findSeatForSocket(room, socketId);
-  if (!seat) throw new Error("Du sitzt nicht in diesem Raum.");
+  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
   if (room.hostSocketId && room.hostSocketId !== socketId) {
     throw new Error("Nur der Host kann die nächste Rutsche starten.");
   }
@@ -547,7 +547,7 @@ export function submitOnlineQuetsch({ roomCode, socketId, cards }) {
   if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
   if (room.game.phase !== "quetsch") throw new Error("Es ist gerade keine Quetsch-Phase.");
   const seat = findSeatForSocket(room, socketId);
-  if (!seat) throw new Error("Du sitzt nicht in diesem Raum.");
+  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
   if (Array.isArray(room.game.quetschSelections[seat.seat])) throw new Error("Du hast deine Quetsch-Karten schon ausgewählt.");
   room.game.quetschSelections[seat.seat] = validateCardsInHand(room.game.gs.hands[seat.seat], cards, 3);
   log("Mensch wählt Quetsch-Karten", { roomCode: room.roomCode, seat: seat.seat });
@@ -560,7 +560,7 @@ export function playOnlineCard({ roomCode, socketId, card }) {
   if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
   if (room.game.phase !== "play") throw new Error("Es ist gerade keine Kartenphase.");
   const seat = findSeatForSocket(room, socketId);
-  if (!seat) throw new Error("Du sitzt nicht in diesem Raum.");
+  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
   if (room.game.gs.currentPlayer !== seat.seat) throw new Error("Du bist nicht am Zug.");
   const hand = room.game.gs.hands[seat.seat];
   const [validated] = validateCardsInHand(hand, [card], 1);
@@ -631,7 +631,7 @@ export function leaveRoom({ roomCode, socketId }) {
   const isHost = room.hostSocketId === socketId;
   if (isHost && room.status === "lobby") {
     rooms.delete(room.roomCode);
-    log("Host verlässt Lobby, Raum geschlossen", { roomCode: room.roomCode });
+    log("Host verlässt Lobby, Tisch geschlossen", { roomCode: room.roomCode });
     return { closed: true, roomCode: room.roomCode };
   }
   for (const s of room.seats) {
@@ -642,7 +642,7 @@ export function leaveRoom({ roomCode, socketId }) {
   }
   if (isHost) room.hostSocketId = null;
   advanceNonCardPhases(room);
-  log("Spieler verlässt Raum", { roomCode: room.roomCode, socketId });
+  log("Spieler verlässt Tisch", { roomCode: room.roomCode, socketId });
   return { closed: false, room: publicRoom(room) };
 }
 
@@ -677,7 +677,7 @@ export function pruneExpiredRooms(now = Date.now()) {
     if (now - room.lastActivity > ROOM_TTL_MS) {
       rooms.delete(room.roomCode);
       expired.push(room.roomCode);
-      log("Raum wegen Inaktivität entfernt", { roomCode: room.roomCode });
+      log("Tisch wegen Inaktivität entfernt", { roomCode: room.roomCode });
     }
   }
   return expired;
