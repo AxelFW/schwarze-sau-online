@@ -604,18 +604,21 @@ export default function App() {
   }
 
   // ── PLAYING ────────────────────────────────────────────────────────────────
-  if(phase==='playing'){
-    const hand  = gs.hands[cp];
-    const valid = new Set(getValidIdxs(hand, gs.leadSuit));
+  if(phase==='playing' || (phase==='trick_done' && lastTrick)){
+    const isTrickPause = phase === 'trick_done' && lastTrick;
+    const activePlayer = Number.isInteger(cp) ? cp : lastTrick?.winner;
+    const hand  = isTrickPause ? [] : (gs.hands[activePlayer] ?? []);
+    const valid = isTrickPause ? new Set() : new Set(getValidIdxs(hand, gs.leadSuit));
+    const trickNo = isTrickPause ? gs.tricksPlayed : gs.tricksPlayed + 1;
     return (
       <div style={{...bg,display:'flex',flexDirection:'column'}}>
         <Header/>
-        <ScoreBar names={names} seatTypes={seatTypes} gs={gs} runScores={runScores} highlight={cp}/>
+        <ScoreBar names={names} seatTypes={seatTypes} gs={gs} runScores={runScores} highlight={isTrickPause ? undefined : activePlayer}/>
         <PenaltyInfo penaltyPlayed={gs.penaltyPlayed} trick={gs.trick}/>
         <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'12px'}}>
           <div style={{background:'rgba(0,0,0,0.28)',borderRadius:16,border:'1px solid rgba(255,255,255,0.09)',padding:'14px 18px',width:'100%',maxWidth:400}}>
             <div style={{textAlign:'center',fontSize:12,color:'#6dbf8a',marginBottom:12,letterSpacing:0.5}}>
-              Stich {gs.tricksPlayed+1} von 13
+              Stich {trickNo} von 13
               {gs.leadSuit&&<span style={{marginLeft:8,color:'rgba(255,255,255,0.7)'}}>· Angespielt: {SYM[gs.leadSuit]}</span>}
             </div>
             <div style={{display:'flex',gap:16,justifyContent:'center',minHeight:92,alignItems:'flex-start',flexWrap:'wrap'}}>
@@ -633,23 +636,25 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div style={{flexShrink:0,background:'rgba(0,0,0,0.55)',borderTop:'1px solid rgba(255,255,255,0.08)',padding:'10px 14px 18px'}}>
-          <div style={{textAlign:'center',marginBottom:8}}>
-            <span style={{color:'#f4c430',fontWeight:'bold',fontSize:14}}>👤 {names[cp]}s Hand</span>
-            {gs.leadSuit&&<span style={{color:'#9dcfb0',fontSize:12,marginLeft:10}}>Bedienen: {SYM[gs.leadSuit]}</span>}
+        {!isTrickPause&&(
+          <div style={{flexShrink:0,background:'rgba(0,0,0,0.55)',borderTop:'1px solid rgba(255,255,255,0.08)',padding:'10px 14px 18px'}}>
+            <div style={{textAlign:'center',marginBottom:8}}>
+              <span style={{color:'#f4c430',fontWeight:'bold',fontSize:14}}>👤 {names[activePlayer]}s Hand</span>
+              {gs.leadSuit&&<span style={{color:'#9dcfb0',fontSize:12,marginLeft:10}}>Bedienen: {SYM[gs.leadSuit]}</span>}
+            </div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:7,justifyContent:'center'}}>
+              {hand.map((card,idx)=>(
+                <CardFace key={`${card.s}${card.v}`} card={card}
+                  highlighted={valid.has(idx)} dimmed={!valid.has(idx)}
+                  onClick={valid.has(idx)?()=>playCard(idx):null}/>
+              ))}
+            </div>
+            <div style={{textAlign:'center',marginTop:6,fontSize:11,color:'rgba(255,255,255,0.28)'}}>
+              Spielbare Karten tippen
+            </div>
           </div>
-          <div style={{display:'flex',flexWrap:'wrap',gap:7,justifyContent:'center'}}>
-            {hand.map((card,idx)=>(
-              <CardFace key={`${card.s}${card.v}`} card={card}
-                highlighted={valid.has(idx)} dimmed={!valid.has(idx)}
-                onClick={valid.has(idx)?()=>playCard(idx):null}/>
-            ))}
-          </div>
-          <div style={{textAlign:'center',marginTop:6,fontSize:11,color:'rgba(255,255,255,0.28)'}}>
-            Spielbare Karten tippen
-          </div>
-        </div>
-        {botBusy&&<BotThinking name={names[cp]}/>}
+        )}
+        {botBusy&&!isTrickPause&&<BotThinking name={names[activePlayer]}/>}
       </div>
     );
   }

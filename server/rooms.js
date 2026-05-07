@@ -10,11 +10,14 @@ import { heuristicQuetschPick, chooseHeuristicCard } from "../shared/game/heuris
 import { sameCard, sortHand, cardPts } from "../shared/game/cards.js";
 
 const rooms = new Map();
-const MAX_ROUNDS = 8;
+const GAMES_PER_RUNDE = 4;
+const DEFAULT_MATCH_RUNDEN = Number(process.env.DEFAULT_MATCH_RUNDEN || 2);
+const MAX_ROUNDS = GAMES_PER_RUNDE * (DEFAULT_MATCH_RUNDEN === 1 ? 1 : 2);
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS || 30 * 60 * 1000);
 const QUETSCH_REVIEW_MS = Number(process.env.QUETSCH_REVIEW_MS || 2600);
 // Delay after the fourth card of a trick is visible before the next trick starts.
-const TRICK_REVIEW_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRICK_REVIEW_MS || 1400);
+const TRICK_DISPLAY_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRICK_REVIEW_MS || 1400);
+const FINAL_TRICK_DISPLAY_MS = Number(process.env.FINAL_TRICK_DISPLAY_MS || Math.max(TRICK_DISPLAY_MS, 2600));
 
 // Wuzz tweak: old German first-name pool for bot seats.
 const BOT_FIRST_NAMES = [
@@ -105,6 +108,17 @@ function assertLobby(room) {
   if (room.status !== "lobby") throw new Error("Der Raum ist nicht mehr in der Lobby.");
 }
 
+function normalizeMatchRutschen(value) {
+  return Number(value) === 1 ? 1 : 2;
+}
+
+function defaultRoomSettings(settings = {}) {
+  return {
+    matchRutschen: normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
+    showPenaltyTracker: settings.showPenaltyTracker !== false,
+  };
+}
+
 export function publicRoom(room) {
   return {
     roomCode: room.roomCode,
@@ -120,6 +134,7 @@ export function publicRoom(room) {
     })),
     createdAt: room.createdAt,
     lastActivity: room.lastActivity,
+    settings: defaultRoomSettings(room.settings),
   };
 }
 
@@ -167,10 +182,12 @@ function validateCardsInHand(hand, cards, requiredCount) {
   return out;
 }
 
-function createGameState(dealer) {
+function createGameState(dealer, settings = {}) {
+  const roomSettings = defaultRoomSettings(settings);
   return {
     round: 1,
-    maxRounds: MAX_ROUNDS,
+    maxRounds: GAMES_PER_RUNDE * roomSettings.matchRutschen,
+    matchRutschen: roomSettings.matchRutschen,
     scores: [0, 0, 0, 0],
     dealer,
     phase: "quetsch", // "quetsch" | "quetsch_review" | "trick_done" | "play" | "round_done" | "gameover"
@@ -273,7 +290,7 @@ function finishRound(room) {
 
   game.phase = "round_done";
   game.currentQuetschSeat = null;
-  log("Runde beendet, wartet auf nächste Runde", {
+  log("Rutsche beendet, wartet auf nächste Rutsche", {
     roomCode: room.roomCode,
     round: game.round,
     roundPts: game.lastRound.roundPts,
@@ -290,15 +307,17 @@ function applyOnlineCard(room, player, card) {
   if (!next) throw new Error("Die Karte konnte nicht gespielt werden.");
 
   if (next._trickJustFinished) {
+    const isFinalTrick = next.tricksPlayed >= 13;
+    const reviewDelayMs = isFinalTrick ? FINAL_TRICK_DISPLAY_MS : TRICK_DISPLAY_MS;
     game.lastTrick = {
       winner: next._trickWinner,
       pts: next._trickNet,
       trick: next._trickCards,
-      isFinal: next.tricksPlayed >= 13,
+      isFinal: isFinalTrick,
     };
-    game.gs = next;
-    game.trickReviewUntil = Date.now() + TRICK_REVIEW_MS;
+    game.trickReviewUntil = Date.now() + reviewDelayMs;
     game.phase = "trick_done";
+    game.gs = next;
   } else {
     game.gs = next;
     game.phase = "play";
@@ -358,7 +377,7 @@ export function advanceGameUntilHumanDecision(room) {
   }
 }
 
-export function createRoom({ hostSocketId, name }) {
+export function createRoom({ hostSocketId, name, settings = {} }) {
   const roomCode = makeRoomCode();
   const seats = emptySeats();
   seats[0] = {
@@ -376,6 +395,7 @@ export function createRoom({ hostSocketId, name }) {
     seats,
     createdAt: Date.now(),
     lastActivity: Date.now(),
+    settings: defaultRoomSettings(settings),
     game: null,
   };
   rooms.set(roomCode, room);
@@ -467,6 +487,18 @@ export function setSeatOpen({ roomCode, socketId, seat }) {
   return publicRoom(room);
 }
 
+export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker }) {
+  const room = requireRoom(roomCode);
+  assertLobby(room);
+  requireHost(room, socketId);
+  const next = defaultRoomSettings(room.settings);
+  if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
+  if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
+  room.settings = next;
+  log("Raumeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
+  return publicRoom(room);
+}
+
 export function startOnlineGame({ roomCode, socketId }) {
   const room = requireRoom(roomCode);
   assertLobby(room);
@@ -477,7 +509,7 @@ export function startOnlineGame({ roomCode, socketId }) {
   if (humanCount < 1) throw new Error("Mindestens ein Mensch muss mitspielen.");
   const dealer = Math.floor(Math.random() * 4);
   room.status = "playing";
-  room.game = createGameState(dealer);
+  room.game = createGameState(dealer, room.settings);
   advanceNonCardPhases(room);
   log("Spiel gestartet", { roomCode: room.roomCode, dealer });
   return room;
@@ -486,12 +518,12 @@ export function startOnlineGame({ roomCode, socketId }) {
 export function startNextOnlineRound({ roomCode, socketId }) {
   const room = requireRoom(roomCode);
   if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
-  if (room.game.phase !== "round_done") throw new Error("Die nächste Runde kann gerade nicht gestartet werden.");
+  if (room.game.phase !== "round_done") throw new Error("Die nächste Rutsche kann gerade nicht gestartet werden.");
 
   const seat = findSeatForSocket(room, socketId);
   if (!seat) throw new Error("Du sitzt nicht in diesem Raum.");
   if (room.hostSocketId && room.hostSocketId !== socketId) {
-    throw new Error("Nur der Host kann die nächste Runde starten.");
+    throw new Error("Nur der Host kann die nächste Rutsche starten.");
   }
 
   const game = room.game;
@@ -506,7 +538,7 @@ export function startNextOnlineRound({ roomCode, socketId }) {
   game.currentQuetschSeat = null;
   game.lastTrick = null;
   advanceNonCardPhases(room);
-  log("Nächste Runde gestartet", { roomCode: room.roomCode, round: game.round, dealer: nextDealer, socketId });
+  log("Nächste Rutsche gestartet", { roomCode: room.roomCode, round: game.round, dealer: nextDealer, socketId });
   return room;
 }
 
@@ -546,7 +578,12 @@ export function getPrivateGameView(room, socketId) {
   const gs = game.gs;
   const names = room.seats.map((s) => s.name || (s.type === "bot" ? "Bot (B)" : `Platz ${s.seat + 1}`));
   const seatTypes = room.seats.map((s) => (s.type === "human" && s.disconnected ? "bot" : s.type));
-  const hand = seatIndex === null ? [] : sortHand(gs.hands[seatIndex] || []);
+  const ownQuetschSelection = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex])
+    ? game.quetschSelections[seatIndex]
+    : [];
+  const hand = seatIndex === null
+    ? []
+    : sortHand((gs.hands[seatIndex] || []).filter((card) => !ownQuetschSelection.some((q) => sameCard(q, card))));
   const validCards = seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex ? getValidCards(gs, seatIndex) : [];
   const pendingQuetschSeats = game.phase === "quetsch" ? pendingHumanQuetschSeats(room) : [];
   const quetschSubmitted = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex]);
@@ -557,6 +594,8 @@ export function getPrivateGameView(room, socketId) {
     yourSeat: seatIndex,
     round: game.round,
     maxRounds: game.maxRounds,
+    matchRutschen: game.matchRutschen ?? defaultRoomSettings(room.settings).matchRutschen,
+    showPenaltyTracker: defaultRoomSettings(room.settings).showPenaltyTracker,
     names,
     seatTypes,
     dealer: gs.dealer,
@@ -568,6 +607,7 @@ export function getPrivateGameView(room, socketId) {
     quetschTarget: seatIndex !== null ? (seatIndex + 1) % 4 : null,
     quetschSource: seatIndex !== null ? (seatIndex + 3) % 4 : null,
     quetschReceived,
+    quetschPassed: ownQuetschSelection,
     quetschReviewRemainingMs: game.phase === "quetsch_review" ? Math.max(0, (game.quetschReviewUntil || Date.now()) - Date.now()) : 0, trickReviewRemainingMs: game.phase === "trick_done" ? Math.max(0, (game.trickReviewUntil || Date.now()) - Date.now()) : 0,
     hand,
     validCards,

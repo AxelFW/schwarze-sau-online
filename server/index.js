@@ -11,6 +11,7 @@ import {
   claimSeat,
   setSeatBot,
   setSeatOpen,
+  setRoomSettings,
   leaveRoom,
   leaveAllRoomsForSocket,
   reconnectSeat,
@@ -130,7 +131,7 @@ io.on("connection", (socket) => {
 
   socket.on("createRoom", (payload = {}, ack) => {
     try {
-      const result = createRoom({ hostSocketId: socket.id, name: payload.name });
+      const result = createRoom({ hostSocketId: socket.id, name: payload.name, settings: payload.settings });
       socket.join(result.room.roomCode);
       io.to(result.room.roomCode).emit("roomUpdated", result.room);
       acknowledge(ack, { ok: true, ...saveTokenPayload(result) });
@@ -181,6 +182,22 @@ io.on("connection", (socket) => {
   socket.on("setSeatBot", (payload = {}, ack) => {
     try {
       const room = setSeatBot({ roomCode: payload.roomCode, socketId: socket.id, seat: payload.seat });
+      io.to(room.roomCode).emit("roomUpdated", room);
+      acknowledge(ack, { ok: true, room });
+    } catch (err) {
+      sendError(socket, err.message);
+      acknowledge(ack, { ok: false, message: err.message });
+    }
+  });
+
+  socket.on("setRoomSettings", (payload = {}, ack) => {
+    try {
+      const room = setRoomSettings({
+        roomCode: payload.roomCode,
+        socketId: socket.id,
+        matchRutschen: payload.matchRutschen,
+        showPenaltyTracker: payload.showPenaltyTracker,
+      });
       io.to(room.roomCode).emit("roomUpdated", room);
       acknowledge(ack, { ok: true, room });
     } catch (err) {

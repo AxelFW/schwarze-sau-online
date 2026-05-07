@@ -198,23 +198,24 @@ function clearReconnect() {
 
 function ScoreStrip({ game }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 14 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 5, marginTop: 12 }}>
       {game.names.map((name, i) => (
         <div
           key={i}
           style={{
-            padding: 10,
-            borderRadius: 12,
+            minWidth: 0,
+            padding: "7px 5px",
+            borderRadius: 10,
             background: i === game.currentPlayer ? "rgba(244,196,48,0.12)" : "rgba(255,255,255,0.06)",
             border: i === game.yourSeat ? "1px solid rgba(244,196,48,0.45)" : "1px solid rgba(255,255,255,0.08)",
             textAlign: "center",
           }}
         >
-          <div style={{ color: "#6dbf8a", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <div style={{ color: "#6dbf8a", fontSize: 10.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {game.seatTypes[i] === "human" ? "👤" : "🧠"} {name} {i === game.dealer ? "(G)" : ""}
           </div>
-          <div style={{ fontSize: 21, fontWeight: "bold", color: i === game.currentPlayer ? "#f4c430" : "white" }}>{game.runScores[i]}</div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{game.tricksWon[i]}✦ · R {game.roundPts[i] >= 0 ? "+" : ""}{game.roundPts[i]}</div>
+          <div style={{ fontSize: 18, fontWeight: "bold", color: i === game.currentPlayer ? "#f4c430" : "white", lineHeight: 1.15 }}>{game.runScores[i]}</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", whiteSpace: "nowrap" }}>{game.tricksWon[i]}✦ · Sp {game.roundPts[i] >= 0 ? "+" : ""}{game.roundPts[i]}</div>
         </div>
       ))}
     </div>
@@ -229,11 +230,37 @@ function LastTrickBanner({ game }) {
       <div style={{ color: lt.pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold", marginBottom: 8 }}>
         Letzter Stich: {game.names[lt.winner]} {lt.pts >= 0 ? "+" : ""}{lt.pts} Punkte
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start" }}>
         {lt.trick.map(({ player, card }, idx) => (
-          <div key={idx} style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 10, color: "#6dbf8a", marginBottom: 4 }}>{game.names[player]}</div>
-            <CardFace card={card} size="sm" />
+          <div
+            key={idx}
+            style={{
+              width: 72,
+              flex: "0 0 72px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                fontSize: 10,
+                color: "#6dbf8a",
+                marginBottom: 5,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                textAlign: "center",
+              }}
+              title={game.names[player]}
+            >
+              {game.names[player]}
+            </div>
+            <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+              <CardFace card={card} size="sm" />
+            </div>
           </div>
         ))}
       </div>
@@ -342,7 +369,7 @@ function OnlineGame({ room, game, setError }) {
 
   async function startNextRound() {
     const res = await emitAck("startNextRound", { roomCode: room.roomCode });
-    if (!res?.ok) setError(res?.message || "Nächste Runde konnte nicht gestartet werden.");
+    if (!res?.ok) setError(res?.message || "Nächste Rutsche konnte nicht gestartet werden.");
   }
 
   const isTrickPause = game.phase === "trick_done";
@@ -358,7 +385,7 @@ function OnlineGame({ room, game, setError }) {
 
     return (
       <div style={{ marginTop: 22 }}>
-        <h2 style={{ color: "#f4c430", textAlign: "center" }}>Spielende</h2>
+        <h2 style={{ color: "#f4c430", textAlign: "center" }}>Rutschenende</h2>
         {ranked.map((p, i) => (
           <div key={p.seat} style={{ display: "flex", justifyContent: "space-between", padding: 13, marginTop: 8, borderRadius: 12, background: i === 0 ? "rgba(244,196,48,0.12)" : "rgba(255,255,255,0.06)" }}>
             <span>{medals[i]} {p.type === "human" ? "👤" : "🧠"} {p.name}</span>
@@ -373,20 +400,20 @@ function OnlineGame({ room, game, setError }) {
     const summary = game.lastRound;
     return (
       <div style={{ marginTop: 22 }}>
-        <h2 style={{ color: "#f4c430", textAlign: "center" }}>Runde {summary?.round ?? game.round} beendet</h2>
+        <h2 style={{ color: "#f4c430", textAlign: "center" }}>Spiel {summary?.round ?? game.round} beendet</h2>
         <div style={{ color: "#6dbf8a", textAlign: "center", marginBottom: 16 }}>
-          Rundenergebnis und Gesamtstand
+          Spielergebnis und Gesamtstand
         </div>
         <div style={{ background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 92px 92px", gap: 8, padding: "9px 13px", color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-            <span>SPIELER</span><span style={{ textAlign: "right" }}>RUNDE</span><span style={{ textAlign: "right" }}>GESAMT</span>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 68px 68px", gap: 6, padding: "8px 9px", color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+            <span>SPIELER</span><span style={{ textAlign: "right" }}>SPIEL</span><span style={{ textAlign: "right" }}>GESAMT</span>
           </div>
           {game.names.map((name, seat) => {
             const rp = summary?.roundPts?.[seat] ?? 0;
             const total = summary?.totalScores?.[seat] ?? game.scores[seat];
             return (
-              <div key={seat} style={{ display: "grid", gridTemplateColumns: "1fr 92px 92px", gap: 8, alignItems: "center", padding: "11px 13px", background: seat % 2 ? "rgba(255,255,255,0.025)" : "transparent" }}>
-                <span>{game.seatTypes[seat] === "human" ? "👤" : "🧠"} {name}</span>
+              <div key={seat} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 68px 68px", gap: 6, alignItems: "center", padding: "10px 9px", background: seat % 2 ? "rgba(255,255,255,0.025)" : "transparent" }}>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{game.seatTypes[seat] === "human" ? "👤" : "🧠"} {name}</span>
                 <strong style={{ textAlign: "right", color: rp >= 0 ? "#4ade80" : "#f87171" }}>{rp >= 0 ? "+" : ""}{rp}</strong>
                 <strong style={{ textAlign: "right", color: "#f4c430", fontSize: 18 }}>{total}</strong>
               </div>
@@ -395,9 +422,9 @@ function OnlineGame({ room, game, setError }) {
         </div>
         <div style={{ marginTop: 20, textAlign: "center" }}>
           {game.canStartNextRound ? (
-            <Button onClick={startNextRound}>Runde {game.round + 1} starten</Button>
+            <Button onClick={startNextRound}>Spiel {game.round + 1} starten</Button>
           ) : (
-            <div style={{ color: "rgba(255,255,255,0.58)" }}>Warte, bis der Host die nächste Runde startet…</div>
+            <div style={{ color: "rgba(255,255,255,0.58)" }}>Warte, bis der Host das nächste Spiel startet…</div>
           )}
         </div>
       </div>
@@ -409,7 +436,7 @@ function OnlineGame({ room, game, setError }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ color: "rgba(255,255,255,0.55)" }}>Raum {room.roomCode}</div>
-          <h2 style={{ color: "#f4c430", margin: "4px 0" }}>Online-Spiel · Runde {game.round}/{game.maxRounds}</h2>
+          <h2 style={{ color: "#f4c430", margin: "4px 0" }}>Wuzz · Spiel {game.round}/{game.maxRounds} · Rutsche {Math.ceil(game.round / 4)}/{game.matchRutschen ?? Math.ceil(game.maxRounds / 4)}</h2>
         </div>
         <div style={{ color: "rgba(255,255,255,0.7)" }}>
           Dein Sitz: {game.yourSeat === null ? "Zuschauer" : `Sitz ${game.yourSeat + 1}`}
@@ -417,12 +444,12 @@ function OnlineGame({ room, game, setError }) {
       </div>
 
       <ScoreStrip game={game} />
-      <NegativeCardsBar game={game} />
+      {game.showPenaltyTracker && <NegativeCardsBar game={game} />}
       <LastTrickBanner game={game} />
 
       {game.lastRound && (
         <div style={{ marginTop: 12, color: "rgba(255,255,255,0.6)", textAlign: "center", fontSize: 13 }}>
-          Letzte Runde: {game.lastRound.roundPts.map((pts, i) => `${game.names[i]} ${pts >= 0 ? "+" : ""}${pts}`).join(" · ")}
+          Letztes Spiel: {game.lastRound.roundPts.map((pts, i) => `${game.names[i]} ${pts >= 0 ? "+" : ""}${pts}`).join(" · ")}
         </div>
       )}
 
@@ -461,6 +488,14 @@ function OnlineGame({ room, game, setError }) {
                 Warte, bis alle ihre Quetsch-Karten ausgewählt haben.
               </div>
               <QuetschSlots cards={[]} />
+              {game.yourSeat !== null && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, marginBottom: 8 }}>DEINE HAND OHNE ABGEGEBENE KARTEN</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7, justifyContent: "center", padding: 10, borderRadius: 12, background: "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    {game.hand.map((card) => <CardFace key={cardId(card)} card={card} size="sm" />)}
+                  </div>
+                </div>
+              )}
               {Array.isArray(game.pendingQuetschSeats) && game.pendingQuetschSeats.length > 0 && (
                 <div style={{ color: "rgba(255,255,255,0.42)", fontSize: 13 }}>
                   Noch offen: {game.pendingQuetschSeats.map((seat) => game.names[seat]).join(", ")}
@@ -488,15 +523,41 @@ function OnlineGame({ room, game, setError }) {
             Stich {displayedTrickNo}/13 {game.leadSuit ? `· Angespielt: ${SYM[game.leadSuit]}` : ""}
           </div>
 
-          <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap", minHeight: 105, padding: 14, borderRadius: 14, background: "rgba(0,0,0,0.2)" }}>
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", alignItems: "center", flexWrap: "wrap", minHeight: 105, padding: 14, borderRadius: 14, background: "rgba(0,0,0,0.2)" }}>
             {game.trick.length === 0 ? (
               <span style={{ color: "rgba(255,255,255,0.25)" }}>Noch keine Karte gespielt</span>
             ) : (
               game.trick.map(({ player, card }, idx) => (
-                <div key={idx} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: "#6dbf8a", marginBottom: 4 }}>{game.names[player]}</div>
-                  <CardFace card={card} />
-                  <div style={{ fontSize: 10, color: cardPts(card) < 0 ? "#f87171" : "rgba(255,255,255,0.4)", marginTop: 3 }}>
+                <div
+                  key={idx}
+                  style={{
+                    width: 92,
+                    flex: "0 0 92px",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "100%",
+                      fontSize: 11,
+                      color: "#6dbf8a",
+                      marginBottom: 4,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      textAlign: "center",
+                    }}
+                    title={game.names[player]}
+                  >
+                    {game.names[player]}
+                  </div>
+                  <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+                    <CardFace card={card} />
+                  </div>
+                  <div style={{ width: "100%", fontSize: 10, color: cardPts(card) < 0 ? "#f87171" : "rgba(255,255,255,0.4)", marginTop: 3, textAlign: "center" }}>
                     {cardPts(card) !== 0 ? cardPts(card) : ""}
                   </div>
                 </div>
@@ -537,6 +598,8 @@ export default function OnlineLobby({ onBack }) {
   const [connected, setConnected] = useState(socket.connected);
   const [socketId, setSocketId] = useState(socket.id || null);
   const [name, setName] = useState(localStorage.getItem("wuzzName") || randomFirstName());
+  const [preferredMatchRutschen, setPreferredMatchRutschen] = useState(2);
+  const [preferredShowPenaltyTracker, setPreferredShowPenaltyTracker] = useState(true);
   const [joinCode, setJoinCode] = useState("");
   const [room, setRoom] = useState(null);
   const [game, setGame] = useState(null);
@@ -628,7 +691,7 @@ export default function OnlineLobby({ onBack }) {
 
   async function createRoom() {
     setError("");
-    const res = await emitAck("createRoom", { name });
+    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker } });
     if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
     if (!res?.ok) setError(res?.message || "Raum konnte nicht erstellt werden.");
   }
@@ -665,6 +728,18 @@ export default function OnlineLobby({ onBack }) {
     if (!res?.ok) setError(res?.message || "Bot konnte nicht gesetzt werden.");
   }
 
+  async function updateRoomSettings(nextSettings) {
+    const merged = {
+      matchRutschen: nextSettings.matchRutschen ?? preferredMatchRutschen,
+      showPenaltyTracker: nextSettings.showPenaltyTracker ?? preferredShowPenaltyTracker,
+    };
+    setPreferredMatchRutschen(merged.matchRutschen);
+    setPreferredShowPenaltyTracker(merged.showPenaltyTracker);
+    if (!room) return;
+    const res = await emitAck("setRoomSettings", { roomCode: room.roomCode, ...merged });
+    if (!res?.ok) setError(res?.message || "Einstellungen konnten nicht geändert werden.");
+  }
+
   async function setOpen(seat) {
     if (!room) return;
     const res = await emitAck("setSeatOpen", {
@@ -672,6 +747,26 @@ export default function OnlineLobby({ onBack }) {
       seat,
     });
     if (!res?.ok) setError(res?.message || "Platz konnte nicht geöffnet werden.");
+  }
+
+  async function startSoloGame() {
+    setError("");
+    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker } });
+    if (!created?.ok) {
+      setError(created?.message || "Solo-Spiel konnte nicht erstellt werden.");
+      return;
+    }
+    saveReconnect(created.room?.roomCode, created.reconnectToken);
+    const roomCode = created.room.roomCode;
+    for (const seat of [1, 2, 3]) {
+      const bot = await emitAck("setSeatBot", { roomCode, seat });
+      if (!bot?.ok) {
+        setError(bot?.message || "Bots konnten nicht gesetzt werden.");
+        return;
+      }
+    }
+    const started = await emitAck("startGame", { roomCode });
+    if (!started?.ok) setError(started?.message || "Solo-Spiel konnte nicht gestartet werden.");
   }
 
   async function startGame() {
@@ -730,9 +825,24 @@ export default function OnlineLobby({ onBack }) {
               <TextInput value={name} onChange={(e) => setName(e.target.value)} />
             </label>
 
+            <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>SPIELDAUER</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Button onClick={() => { setPreferredMatchRutschen(1); if (room) updateRoomSettings({ matchRutschen: 1 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "#1a1a1a" : "white" }}>1 Rutsche · 4 Spiele</Button>
+                <Button onClick={() => { setPreferredMatchRutschen(2); if (room) updateRoomSettings({ matchRutschen: 2 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "#1a1a1a" : "white" }}>2 Rutschen · 8 Spiele</Button>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
+                Offene Herzen/♠Q anzeigen
+              </label>
+            </div>
+
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               <Button onClick={createRoom} disabled={!connected}>
                 Raum erstellen
+              </Button>
+              <Button onClick={startSoloGame} disabled={!connected}>
+                Spiel alleine
               </Button>
             </div>
 
@@ -788,6 +898,25 @@ export default function OnlineLobby({ onBack }) {
               >
                 {isHost ? "Du bist Host" : "Warte auf den Host"}
               </div>
+            </div>
+
+            <div style={{ marginTop: 18 }}>
+              {isHost && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5, marginBottom: 8 }}>Lobby-Einstellungen</div>
+                  <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>SPIELDAUER</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Button onClick={() => { setPreferredMatchRutschen(1); if (room) updateRoomSettings({ matchRutschen: 1 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "#1a1a1a" : "white" }}>1 Rutsche · 4 Spiele</Button>
+                <Button onClick={() => { setPreferredMatchRutschen(2); if (room) updateRoomSettings({ matchRutschen: 2 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "#1a1a1a" : "white" }}>2 Rutschen · 8 Spiele</Button>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
+                Offene Herzen/♠Q anzeigen
+              </label>
+            </div>
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: 22, display: "grid", gap: 12 }}>
@@ -868,11 +997,11 @@ export default function OnlineLobby({ onBack }) {
 
             <div style={{ marginTop: 18 }}>
               <Button onClick={startGame} disabled={!canStart}>
-                Spiel starten
+                Rutsche starten
               </Button>
               {!canStart && isHost && (
                 <div style={{ color: "rgba(255,255,255,0.45)", marginTop: 8, fontSize: 13 }}>
-                  Besetze zuerst jeden freien Platz mit einem Menschen oder Bot.
+                  Besetze zuerst jeden freien Platz mit einem Menschen oder Bot – oder nutze „Spiel alleine“.
                 </div>
               )}
             </div>

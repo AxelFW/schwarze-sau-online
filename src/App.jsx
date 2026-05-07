@@ -204,7 +204,7 @@ export default function App() {
   const [names,setNames] = useState(() => randomLocalSeatNames());
   const [seatTypes,setSeatTypes] = useState(['human','heuristic','heuristic','heuristic']);
   const isBot = seatTypes.map(isComputerSeat);
-  const [screen,setScreen]   = useState('welcome');
+  const [screen,setScreen]   = useState('online');
   const [scores,setScores]   = useState([0,0,0,0]);
   const [round,setRound]     = useState(1);
   const [gs,setGs]           = useState(null);
@@ -382,7 +382,7 @@ export default function App() {
   };
 
   // ── ONLINE LOBBY ────────────────────────────────────────────────────────────
-  if(screen==='online') return <OnlineLobby onBack={() => setScreen('welcome')} />;
+  if(screen==='online') return <OnlineLobby onBack={() => setScreen('online')} />;
 
   // ── WELCOME ────────────────────────────────────────────────────────────────
   if(screen==='welcome') return (
@@ -390,7 +390,7 @@ export default function App() {
       <div style={{width:'100%',maxWidth:440,padding:'0 24px',textAlign:'center'}}>
         <div style={{fontSize:56,marginBottom:10}}>🐷</div>
         <h1 style={{fontSize:42,fontWeight:'bold',letterSpacing:3,color:'#f4c430',margin:'0 0 6px'}}>Wuzz</h1>
-        <p style={{color:'#6dbf8a',marginBottom:28,fontSize:14,letterSpacing:1}}>Lokales Stichspiel · 4 Spieler · {MAX} Runden · nur Heuristik-Bots</p>
+        <p style={{color:'#6dbf8a',marginBottom:28,fontSize:14,letterSpacing:1}}>Lokales Stichspiel · 4 Spieler · {MAX} Rutschen · nur Heuristik-Bots</p>
 
         {/* Player setup */}
         <div style={{marginBottom:28,textAlign:'left'}}>
@@ -436,7 +436,7 @@ export default function App() {
         <div style={{width:'100%',maxWidth:440,padding:'0 24px',textAlign:'center'}}>
           <div style={{fontSize:48,marginBottom:12}}>🏆</div>
           <h2 style={{fontSize:34,color:'#f4c430',marginBottom:6}}>Spielende!</h2>
-          <p style={{color:'#6dbf8a',marginBottom:28,fontSize:14}}>Endstand nach {MAX} Runden</p>
+          <p style={{color:'#6dbf8a',marginBottom:28,fontSize:14}}>Endstand nach {MAX} Rutschen</p>
           {ranked.map((p,r)=>(
             <div key={r} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'13px 20px',marginBottom:8,background:r===0?'rgba(244,196,48,0.12)':'rgba(255,255,255,0.05)',borderRadius:10,border:r===0?'1px solid rgba(244,196,48,0.35)':'1px solid rgba(255,255,255,0.06)'}}>
               <span style={{fontSize:18}}>{medals[r]} {p.type==='human'?'👤 ':p.type==='heuristic'?'🧠 ':'🤖 '}{p.n}</span>
@@ -456,7 +456,7 @@ export default function App() {
   const Header = () => (
     <div style={{background:'rgba(0,0,0,0.5)',padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
       <span style={{color:'#f4c430',fontWeight:'bold',fontSize:17,letterSpacing:1}}>🐷 Wuzz</span>
-      <span style={{color:'#6dbf8a',fontSize:13}}>Runde {round} / {MAX}</span>
+      <span style={{color:'#6dbf8a',fontSize:13}}>Rutsche {round} / {MAX}</span>
     </div>
   );
 
@@ -699,9 +699,9 @@ export default function App() {
       <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
         <div style={{width:'100%',maxWidth:440,textAlign:'center'}}>
           <div style={{fontSize:36,marginBottom:12}}>📊</div>
-          <h2 style={{fontSize:30,color:'#f4c430',margin:'0 0 4px'}}>Runde {round} beendet</h2>
+          <h2 style={{fontSize:30,color:'#f4c430',margin:'0 0 4px'}}>Rutsche {round} beendet</h2>
           <p style={{color:'#6dbf8a',marginBottom:24,fontSize:14}}>
-            {round<MAX?`Noch ${MAX-round} Runde${MAX-round>1?'n':''}`:'Das war die letzte Runde!'}
+            {round<MAX?`Noch ${MAX-round} Rutsche${MAX-round>1?'n':''}`:'Das war die letzte Rutsche!'}
           </p>
           <div style={{background:'rgba(0,0,0,0.2)',borderRadius:12,border:'1px solid rgba(255,255,255,0.06)',overflow:'hidden',marginBottom:24}}>
             <div style={{display:'flex',justifyContent:'space-between',padding:'8px 18px',fontSize:11,color:'#6dbf8a',borderBottom:'1px solid rgba(255,255,255,0.06)',letterSpacing:0.5}}>
@@ -722,7 +722,7 @@ export default function App() {
             })}
           </div>
           <Btn onClick={afterRound} full>
-            {round<MAX?`Runde ${round+1} starten →`:'Ergebnis anzeigen 🏆'}
+            {round<MAX?`Rutsche ${round+1} starten →`:'Ergebnis anzeigen 🏆'}
           </Btn>
         </div>
       </div>
