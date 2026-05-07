@@ -568,12 +568,8 @@ function OnlineGame({ room, game, setError }) {
           {!isTrickPause && (
             <>
               <h3 style={{ color: "#f4c430", textAlign: "center", marginTop: 18 }}>
-            {game.phase === "trick_done" || game.currentPlayer === null || game.currentPlayer === undefined
-              ? " "
-              : game.currentPlayer === game.yourSeat
-              ? "Du bist am Zug"
-              : `${game.names[game.currentPlayer]} ist am Zug`}
-          </h3>
+                {game.currentPlayer === game.yourSeat ? "Du bist am Zug" : `${game.names[game.currentPlayer]} ist am Zug`}
+              </h3>
               {game.leadSuit && <div style={{ color: "#9dcfb0", textAlign: "center", marginBottom: 8 }}>Bedienen: {SYM[game.leadSuit]}</div>}
             </>
           )}
