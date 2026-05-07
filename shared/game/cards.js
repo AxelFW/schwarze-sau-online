@@ -1,5 +1,5 @@
 // ── Shared card primitives for Schwarze Sau ──────────────────────────────────
-export const APP_SUITS = ['S', 'H', 'D', 'C'];       // UI order
+export const APP_SUITS = ['S', 'H', 'C', 'D'];       // UI order
 export const PY_SUITS = ['C', 'D', 'H', 'S'];        // stable index order
 export const SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
 export const VALS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
