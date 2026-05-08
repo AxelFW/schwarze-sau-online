@@ -81,7 +81,6 @@ export const botQuetschPick = heuristicQuetschPick;
 // heart/spade safety, dangerous-trick avoidance, late-game harvest, safe ace
 // leads, quetsch/void awareness, and midgame small-card play.
 const HIGH_WIN_LOWER_SHARE = 0.75;
-const FEW_UNSEEN_SUIT_CARDS = 3;
 
 // Late-game harvest mode: when remaining outside penalties are weak, prefer
 // winning positive tricks instead of over-avoiding void-dump risk.
@@ -299,13 +298,67 @@ const highUnplayedCount = (gs, player, suit) => {
   return [10,11,12,13,14].filter(v => !known.has(cardKey({s:suit, v}))).length;
 };
 
+const heartPenaltyMass = c => Math.max(0, -cardPts(c));
+
+const lowerHeartPenaltyMassOutside = (card, gs, player) =>
+  unseenCardsOfSuit(gs, player, 'H')
+    .filter(c => c.v < card.v)
+    .reduce((sum, c) => sum + heartPenaltyMass(c), 0);
+
+const heartLeadExposureRisk = (card, gs, player) => {
+  const heartsAfter = gs.hands[player].filter(c => c.s === 'H' && !sameCard(c, card));
+  const highHeartsAfter = heartsAfter.filter(c => c.v >= 11);
+  if(!highHeartsAfter.length) return false;
+
+  // A low/mid heart protects ♥J–♥A because it can be spent before the bot is
+  // forced to overtake later heart leads.  Burning the last such protector
+  // while the suit is still live is dangerous even if this lead is currently
+  // overtaken.
+  const remainingProtection = heartsAfter.filter(c => c.v < 11);
+  if(remainingProtection.length) return false;
+  if(card.v >= 11) return false;
+
+  return unseenCardsOfSuit(gs, player, 'H').length > 2;
+};
+
 const heartLeadRisk = (card, gs, player) => {
-  const known = new Set(knownCardsFor(gs, player).map(cardKey));
-  const smallerInOpponents = cardsOfSuit('H')
-    .filter(c => c.v < card.v && !known.has(cardKey(c)))
-    .length;
-  const threshold = card.v > 8 ? 1 : 2;
-  return smallerInOpponents >= threshold;
+  if(card.s !== 'H') return false;
+
+  // 1. Duck-under danger: enough lower penalty hearts remain outside that
+  // opponents can cheaply stay below this lead.
+  if(lowerHeartPenaltyMassOutside(card, gs, player) > 5) return true;
+
+  // 2. High-heart danger: do not voluntarily lead ♥10–♥A while holding a
+  // smaller heart escape and hearts are still live outside.
+  const handHearts = gs.hands[player].filter(c => c.s === 'H');
+  const minHeartInHand = handHearts.length ? Math.min(...handHearts.map(c => c.v)) : null;
+  const outsideHearts = unseenCardsOfSuit(gs, player, 'H');
+  if(card.v > 9 && minHeartInHand !== null && card.v !== minHeartInHand && outsideHearts.length) return true;
+
+  // 3. Exposure danger: a seemingly safe low/mid heart can be bad when it is
+  // the last protector for ♥J–♥A and several outside hearts can still force
+  // future heart rounds.
+  return heartLeadExposureRisk(card, gs, player);
+};
+
+const heartLeadPreferenceCandidates = (hearts, gs, player) => {
+  if(!hearts.length) return [];
+  const outsideHearts = unseenCardsOfSuit(gs, player, 'H');
+
+  // If any candidate has lower hearts outside, minimize duck-under exposure by
+  // leading the lowest heart available.
+  if(hearts.some(c => outsideHearts.some(o => o.v < c.v))) {
+    return smallestCards(hearts);
+  }
+
+  // Otherwise, if a higher outside heart can still overtake us, bleed the
+  // highest heart that remains below an outside card.
+  const beatableHearts = hearts.filter(c => outsideHearts.some(o => o.v > c.v));
+  if(beatableHearts.length) return largestCards(beatableHearts);
+
+  // No higher outside heart remains: if forced to lead hearts, keep the damage
+  // as small as possible.
+  return smallestCards(hearts);
 };
 
 const queenSpadeCashoutLeadCandidates = (valid, gs, player) => {
@@ -326,15 +379,17 @@ const nonQueenSpadeLeadCandidates = valid => {
   return nonQueenSpades.length ? smallestCards(nonQueenSpades) : [];
 };
 
-const queenSpadeNonExposingLeadCandidates = (valid, gs, player) => {
-  // Kept for future stricter variants: reopen spades only if the lead does not
-  // leave ♠Q as our only spade.  H5 now uses the broader non-queen-spade
-  // fallback because a dangerous high-heart lead can be worse than spending the
-  // final queen protector.
+const protectedNonQueenSpadeFallbackCandidates = (valid, gs, player) => {
+  // Holding ♠Q makes spade leads expensive, not impossible.  A fallback spade
+  // is allowed only when leading it still leaves a non-queen spade guard with
+  // ♠Q afterward.  Prefer non-Q spades below the queen; do not use ♠K/♠A as a
+  // normal escape hatch.
   if(!queenSpadesInHand(gs, player)) return [];
-  const nonQueenSpades = valid.filter(c => c.s === 'S' && !sameCard(c, QUEEN_SPADES));
-  if(nonQueenSpades.length < 2) return [];
-  return smallestCards(nonQueenSpades);
+  const otherSpadesInHand = gs.hands[player].filter(c => c.s === 'S' && !sameCard(c, QUEEN_SPADES));
+  if(otherSpadesInHand.length < 2) return [];
+
+  const lowNonQueenSpades = valid.filter(c => c.s === 'S' && c.v < 12);
+  return lowNonQueenSpades.length ? smallestCards(lowNonQueenSpades) : [];
 };
 
 const highestLosingCards = (cards, gs) => {
@@ -387,21 +442,6 @@ const leastBadVoidRiskLeadCandidates = (cards, gs, player) => {
   return scored
     .filter(x => x.higher === best.higher && x.lower === best.lower && x.rank === best.rank)
     .map(x => x.card);
-};
-
-const sureWinnerWithFewUnseenSuitCards = (card, gs, player) => {
-  const availableAfter = unseenCardsOfSuit(gs, player, card.s).length;
-  if(availableAfter >= FEW_UNSEEN_SUIT_CARDS) return false;
-  if(!gs.leadSuit || gs.trick.length === 0) return noHigherUnseenCard(card, gs, player);
-  return beatsCurrentTrick(card, gs) && noHigherUnseenCard(card, gs, player);
-};
-
-const avoidRiskyHighWinLeads = (cards, gs, player) => {
-  const safe = cards.filter(c => !(
-    highWinProbability(c, gs, player) &&
-    (trickIsNetNegative(gs) || sureWinnerWithFewUnseenSuitCards(c, gs, player))
-  ));
-  return safe.length ? safe : cards;
 };
 
 const canStillBeOvertaken = (card, gs, player) => {
@@ -532,28 +572,31 @@ const stillUnplayedCardsOfSuit = (gs, suit) => {
 };
 const isLowestStillUnplayedInSuit = (card, gs) => !stillUnplayedCardsOfSuit(gs, card.s).some(c => c.v < card.v);
 const hasHigherUnplayedOutsideOwnHand = (card, gs, player) => unseenCardsOfSuit(gs, player, card.s).some(c => c.v > card.v);
+const allOutsideSameSuitCardsAreHigher = (card, gs, player) => {
+  const outside = unseenCardsOfSuit(gs, player, card.s);
+  return outside.length > 0 && outside.every(c => c.v > card.v);
+};
 const negativeTrickSuitSet = gs => new Set(gs.negativeTrickSuits ?? []);
-const midgameLeadCandidates = (cards, gs, player) => {
+
+const isSafeBleedLead = (card, gs, player) =>
+  (isLowestStillUnplayedInSuit(card, gs) && hasHigherUnplayedOutsideOwnHand(card, gs, player)) ||
+  allOutsideSameSuitCardsAreHigher(card, gs, player);
+
+const negativeHistoryNonHeartLeadCandidates = (cards, gs, player) => {
   if(!cards.length) return [];
   const badSuits = negativeTrickSuitSet(gs);
+  if(!badSuits.size) return cards;
 
-  // If a suit has already produced a net-negative trick for anyone, only
-  // reopen it directly when we can safely bleed the current lowest unplayed
-  // card and at least one higher outside card can still overtake it.
-  const safeBleeds = cards.filter(c =>
-    badSuits.has(c.s) &&
-    isLowestStillUnplayedInSuit(c, gs) &&
-    hasHigherUnplayedOutsideOwnHand(c, gs, player)
-  );
-  if(safeBleeds.length) return smallestCards(safeBleeds);
+  // Hearts almost always make tricks negative, so heart history is not
+  // informative.  Heart danger is handled by the dedicated risky-heart logic.
+  return cards.filter(c => c.s === 'H' || !badSuits.has(c.s) || isSafeBleedLead(c, gs, player));
+};
 
-  // Otherwise avoid suits that have already produced a bad trick, but only as
-  // a soft preference inside cautious midgame play.
-  const nonNegativeSuitCards = cards.filter(c => !badSuits.has(c.s));
-  if(nonNegativeSuitCards.length) cards = nonNegativeSuitCards;
+const midgameLeadCandidates = (cards, gs, player) => {
+  if(!cards.length) return [];
 
-  // Prefer cards that can still be beaten. If that empties the set, fall back
-  // to the normal lowest-card cautious play.
+  // Full cautious midgame is now only the general small/beatable preference.
+  // Negative suit history is handled separately from trick 2 onward.
   const beatable = cards.filter(c => hasHigherUnplayedOutsideOwnHand(c, gs, player));
   if(beatable.length) cards = beatable;
 
@@ -580,6 +623,7 @@ export const chooseHeuristicCard = (gs, player) => {
 
   if(isLeading) {
     let candidates = [...valid];
+    const protectedSpadeFallback = protectedNonQueenSpadeFallbackCandidates(valid, gs, player);
 
     // H0L: ♠Q cashout. This rare tactic has priority over every normal lead
     // heuristic: if all outside spades are ♠K/♠A, ♠Q is guaranteed to be beaten.
@@ -629,10 +673,10 @@ export const chooseHeuristicCard = (gs, player) => {
     const harvestLeads = harvestWinningLeads(candidates, gs, player);
     if(harvestLeads.length) return randomFrom(harvestLeads);
 
-    // H5: Avoid risky heart leads where opponents can duck below us.
-    // Remove risky hearts only if something survives. If the filter would
-    // empty the candidate set after the previous safety rules, reopen the
-    // lowest non-Q♠ spade if possible; otherwise lead the lowest heart.
+    // H5: Avoid risky heart leads.  Risk now combines duck-under mass,
+    // voluntary high-heart exposure, and burning the last low/mid protector
+    // for ♥J–♥A.  If the heart filter empties all non-spade options, use a
+    // protected low spade only when ♠Q still keeps a guard afterward.
     const hearts = candidates.filter(c => c.s === 'H');
     if(hearts.length) {
       const riskyHearts = hearts.filter(c => heartLeadRisk(c, gs, player));
@@ -640,30 +684,43 @@ export const chooseHeuristicCard = (gs, player) => {
         const filtered = candidates.filter(c => !riskyHearts.some(r => sameCard(r, c)));
         if(filtered.length) {
           candidates = filtered;
+        } else if(protectedSpadeFallback.length) {
+          return randomFrom(protectedSpadeFallback);
         } else {
-          const nonQueenSpades = nonQueenSpadeLeadCandidates(valid);
-          if(nonQueenSpades.length) return randomFrom(nonQueenSpades);
-          const handHearts = valid.filter(c => c.s === 'H');
-          if(handHearts.length) return randomFrom(smallestCards(handHearts));
+          return randomFrom(heartLeadPreferenceCandidates(hearts, gs, player));
         }
+      } else if(candidates.every(c => c.s === 'H')) {
+        candidates = heartLeadPreferenceCandidates(hearts, gs, player);
       }
     }
 
     // H_V1: Known-void suits are only dangerous when the card is likely to
-    // win. Small cards in a void-risky suit remain acceptable when higher
-    // cards are still out and can overtake us.
+    // win. If every same-suit card outside is higher, the lead is a safe exit:
+    // someone else must take the trick even if a void player dumps penalties.
     const riskyVoidLeads = candidates.filter(c => voidRiskyWinningLead(c, gs, player));
     if(riskyVoidLeads.length) {
       const safeFromVoid = candidates.filter(c => !riskyVoidLeads.some(r => sameCard(r, c)));
       if(safeFromVoid.length) {
         candidates = safeFromVoid;
+      } else if(protectedSpadeFallback.length) {
+        return randomFrom(protectedSpadeFallback);
       } else {
         candidates = leastBadVoidRiskLeadCandidates(candidates, gs, player);
       }
     }
 
-    // H6: Avoid high-win leads that likely collect negative net tricks.
-    candidates = avoidRiskyHighWinLeads(candidates, gs, player);
+    // H_NEGHIST: From trick 2 onward, avoid non-heart suits that have already
+    // produced a negative trick, unless the candidate is a safe bleed/exit.
+    // Hearts are deliberately excluded because heart tricks are usually
+    // negative and are handled by H5.
+    if(gs.tricksPlayed >= 1) {
+      const filteredByHistory = negativeHistoryNonHeartLeadCandidates(candidates, gs, player);
+      if(filteredByHistory.length) {
+        candidates = filteredByHistory;
+      } else if(protectedSpadeFallback.length) {
+        return randomFrom(protectedSpadeFallback);
+      }
+    }
 
     // H6b: Under serious danger, prefer creating a short-suit void
     // before taking otherwise-safe ♣A/♦A openers.  This is a soft preference:

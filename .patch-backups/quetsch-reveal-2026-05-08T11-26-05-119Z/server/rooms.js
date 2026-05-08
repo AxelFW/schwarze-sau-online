@@ -29,7 +29,7 @@ const BOT_FIRST_NAMES = [
   "Otto",
   "Peter",
   "Thomas",
-  "Sigrun",
+  "Michi",
   "Ludwig",
   "Adelheid",
   "Mathilde",
@@ -40,8 +40,7 @@ const BOT_FIRST_NAMES = [
   "Auguste",
   "Ursula",
   "Else",
-  "Ingrid",
-  "Günther"
+  "Ingrid"
 ];
 function randomBotName(room) {
   const usedBase = new Set((room?.seats || []).map(s => String(s.name || '').replace(/\s*\(B\)$/, '')));
@@ -226,25 +225,6 @@ function pendingHumanQuetschSeats(room) {
 
 function allQuetschSelectionsReady(room) {
   return room.game.quetschSelections.every((selection) => Array.isArray(selection) && selection.length === 3);
-}
-
-function visibleQuetschReceivedForSeat(game, seatIndex) {
-  if (!game || seatIndex === null || seatIndex === undefined) return [];
-
-  if (game.phase === "quetsch") {
-    const hasSubmittedOwnQuetsch = Array.isArray(game.quetschSelections?.[seatIndex]);
-    if (!hasSubmittedOwnQuetsch) return [];
-
-    const sourceSeat = (seatIndex + 3) % 4;
-    const sourceSelection = game.quetschSelections?.[sourceSeat];
-    return Array.isArray(sourceSelection) && sourceSelection.length === 3
-      ? sourceSelection.map((card) => ({ ...card }))
-      : [];
-  }
-
-  return Array.isArray(game.quetschReceived?.[seatIndex])
-    ? game.quetschReceived[seatIndex].map((card) => ({ ...card }))
-    : [];
 }
 
 function startQuetschReview(room) {
@@ -607,7 +587,7 @@ export function getPrivateGameView(room, socketId) {
   const validCards = seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex ? getValidCards(gs, seatIndex) : [];
   const pendingQuetschSeats = game.phase === "quetsch" ? pendingHumanQuetschSeats(room) : [];
   const quetschSubmitted = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex]);
-  const quetschReceived = visibleQuetschReceivedForSeat(game, seatIndex);
+  const quetschReceived = seatIndex !== null ? (game.quetschReceived?.[seatIndex] || []) : [];
   const runScores = game.scores.map((score, i) => score + (gs.roundPts?.[i] || 0));
   return {
     phase: game.phase,
