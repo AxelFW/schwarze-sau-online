@@ -136,7 +136,6 @@ export function publicRoom(room) {
     createdAt: room.createdAt,
     lastActivity: room.lastActivity,
     settings: defaultRoomSettings(room.settings),
-    spectatorCount: room.spectators?.size || 0,
   };
 }
 
@@ -161,10 +160,6 @@ function findSeatForToken(room, token) {
 function isConnectedHumanSeat(room, seat) {
   const s = room.seats[seat];
   return s?.type === "human" && Boolean(s.socketId);
-}
-
-function hasConnectedHumanPlayers(room) {
-  return Boolean(room?.seats?.some((s) => s.type === "human" && Boolean(s.socketId)));
 }
 
 function isBotControlledSeat(room, seat) {
@@ -421,7 +416,6 @@ export function createRoom({ hostSocketId, name, settings = {} }) {
     createdAt: Date.now(),
     lastActivity: Date.now(),
     settings: defaultRoomSettings(settings),
-    spectators: new Set(),
     game: null,
   };
   rooms.set(roomCode, room);
@@ -435,46 +429,9 @@ export function getInternalRoom(roomCode) {
 
 export function joinRoom({ roomCode }) {
   const room = requireRoom(roomCode);
+  assertLobby(room);
   return publicRoom(room);
 }
-export function spectateRoom({ roomCode, socketId }) {
-  const room = requireRoom(roomCode);
-  if (room.status !== "playing" || !room.game) throw new Error("Der Tisch spielt gerade nicht.");
-  if (findSeatForSocket(room, socketId)) throw new Error("Du sitzt bereits an diesem Tisch.");
-  if (!room.spectators) room.spectators = new Set();
-  room.spectators.add(socketId);
-  log("Zuschauer betritt Tisch", { roomCode: room.roomCode, socketId });
-  return publicRoom(room);
-}
-
-export function takeOverBotSeat({ roomCode, socketId, name, seat = null }) {
-  const room = requireRoom(roomCode);
-  if (room.status !== "playing" || !room.game) throw new Error("Der Tisch spielt gerade nicht.");
-  if (findSeatForSocket(room, socketId)) throw new Error("Du sitzt bereits an diesem Tisch.");
-
-  const requestedSeat = seat === null || seat === undefined || seat === "" ? null : Number(seat);
-  if (requestedSeat !== null && (!Number.isInteger(requestedSeat) || requestedSeat < 0 || requestedSeat > 3)) {
-    throw new Error("Ungültiger Bot-Platz.");
-  }
-
-  const target = requestedSeat === null
-    ? room.seats.find((s) => s.type === "bot")
-    : room.seats[requestedSeat];
-
-  if (!target || target.type !== "bot") throw new Error("Es gibt keinen Bot-Platz, den du übernehmen kannst.");
-
-  target.type = "human";
-  target.name = cleanName(name);
-  target.socketId = socketId;
-  target.reconnectToken = makeToken();
-  target.disconnected = false;
-  room.spectators?.delete(socketId);
-
-  log("Bot-Platz wurde übernommen", { roomCode: room.roomCode, seat: target.seat, socketId });
-  advanceNonCardPhases(room);
-  return publicRoomWithToken(room, socketId);
-}
-
 
 export function claimSeat({ roomCode, socketId, name, seat }) {
   const room = requireRoom(roomCode);
@@ -689,23 +646,8 @@ export function getPrivateGameView(room, socketId) {
   };
 }
 
-export function getSpectatorGameView(room) {
-  return getPrivateGameView(room, null);
-}
-
-export function closeRoomIfNoConnectedHumanPlayers(roomCode) {
-  const code = normalizeCode(roomCode);
-  const room = rooms.get(code);
-  if (!room) return false;
-  if (hasConnectedHumanPlayers(room)) return false;
-  rooms.delete(code);
-  log("Tisch geschlossen, keine verbundenen Menschen", { roomCode: code });
-  return true;
-}
-
 export function leaveRoom({ roomCode, socketId }) {
   const room = requireRoom(roomCode);
-  room.spectators?.delete(socketId);
   const isHost = room.hostSocketId === socketId;
   if (isHost && room.status === "lobby") {
     rooms.delete(room.roomCode);
@@ -727,14 +669,13 @@ export function leaveRoom({ roomCode, socketId }) {
 export function leaveAllRoomsForSocket(socketId) {
   const results = [];
   for (const room of [...rooms.values()]) {
-    const isInRoom = room.hostSocketId === socketId || room.seats.some((s) => s.socketId === socketId) || room.spectators?.has(socketId);
+    const isInRoom = room.hostSocketId === socketId || room.seats.some((s) => s.socketId === socketId);
     if (!isInRoom) continue;
     if (room.hostSocketId === socketId && room.status === "lobby") {
       rooms.delete(room.roomCode);
       results.push({ closed: true, roomCode: room.roomCode });
       log("Host getrennt, Lobby geschlossen", { roomCode: room.roomCode });
     } else {
-      room.spectators?.delete(socketId);
       for (const s of room.seats) {
         if (s.type === "human" && s.socketId === socketId) {
           s.socketId = null;

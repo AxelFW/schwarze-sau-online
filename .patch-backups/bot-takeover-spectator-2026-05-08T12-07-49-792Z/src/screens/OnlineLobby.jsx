@@ -341,42 +341,7 @@ function QuetschSlots({ cards = [] }) {
   );
 }
 
-function JoinInProgressScreen({ room, onTakeOverBot, onSpectate }) {
-  const botSeats = (room?.seats || []).filter((seat) => seat.type === "bot");
-  const canTakeOverBot = botSeats.length > 0;
-
-  return (
-    <div style={{ marginTop: 28, textAlign: "center", padding: "28px 18px", borderRadius: 16, background: "rgba(0,0,0,0.24)", border: "1px solid rgba(255,255,255,0.1)" }}>
-      <h2 style={{ color: "#f4c430", marginTop: 0 }}>Der Tisch spielt bereits</h2>
-      <div style={{ color: "rgba(255,255,255,0.68)", lineHeight: 1.5, maxWidth: 620, margin: "0 auto" }}>
-        Du kannst zuschauen oder einen Bot-Platz übernehmen und direkt mitspielen.
-        Wenn du einen Bot übernimmst, spielst du mit dessen aktueller Hand, Punkten und Spielsituation weiter.
-      </div>
-      {canTakeOverBot && (
-        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, marginTop: 12 }}>
-          Verfügbare Bots: {botSeats.map((seat) => seat.name || `Bot ${seat.seat + 1}`).join(", ")}
-        </div>
-      )}
-      <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap", marginTop: 22 }}>
-        {canTakeOverBot && (
-          <Button onClick={() => onTakeOverBot()}>
-            Bot übernehmen
-          </Button>
-        )}
-        <Button onClick={onSpectate} style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
-          Zuschauen
-        </Button>
-      </div>
-      {!canTakeOverBot && (
-        <div style={{ color: "rgba(255,255,255,0.42)", fontSize: 13, marginTop: 12 }}>
-          Aktuell gibt es keinen Bot-Platz zum Übernehmen.
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OnlineGame({ room, game, setError, onTakeOverBot }) {
+function OnlineGame({ room, game, setError }) {
   const [selected, setSelected] = useState([]);
 
   useEffect(() => {
@@ -408,10 +373,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
   async function startNextRound() {
     const res = await emitAck("startNextRound", { roomCode: room.roomCode });
     if (!res?.ok) setError(res?.message || "Nächste Rutsche konnte nicht gestartet werden.");
-  }
-
-  async function takeOverBotFromGame() {
-    if (typeof onTakeOverBot === "function") await onTakeOverBot();
   }
 
   const isTrickPause = game.phase === "trick_done";
@@ -480,13 +441,8 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
           <div style={{ color: "rgba(255,255,255,0.55)" }}>Tisch {room.roomCode}</div>
           <h2 style={{ color: "#f4c430", margin: "4px 0" }}>Wuzz · Spiel {game.round}/{game.maxRounds} · Rutsche {Math.ceil(game.round / 4)}/{game.matchRutschen ?? Math.ceil(game.maxRounds / 4)}</h2>
         </div>
-        <div style={{ color: "rgba(255,255,255,0.7)", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <span>Dein Sitz: {game.yourSeat === null ? "Zuschauer" : `Sitz ${game.yourSeat + 1}`}</span>
-          {game.yourSeat === null && room.seats?.some((seat) => seat.type === "bot") && (
-            <Button onClick={takeOverBotFromGame} style={{ padding: "8px 12px" }}>
-              Bot übernehmen
-            </Button>
-          )}
+        <div style={{ color: "rgba(255,255,255,0.7)" }}>
+          Dein Sitz: {game.yourSeat === null ? "Zuschauer" : `Sitz ${game.yourSeat + 1}`}
         </div>
       </div>
 
@@ -502,19 +458,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
 
       {game.phase === "quetsch" && (
         <div style={{ marginTop: 22 }}>
-          {game.yourSeat === null ? (
-            <div style={{ textAlign: "center", padding: "30px 16px", color: "rgba(255,255,255,0.72)" }}>
-              <h3 style={{ color: "#f4c430", marginTop: 0 }}>Quetsch läuft</h3>
-              <div style={{ color: "rgba(255,255,255,0.58)", lineHeight: 1.45 }}>
-                Du schaust zu. Die Quetsch-Karten bleiben verdeckt.
-              </div>
-              {Array.isArray(game.pendingQuetschSeats) && game.pendingQuetschSeats.length > 0 && (
-                <div style={{ color: "rgba(255,255,255,0.42)", fontSize: 13, marginTop: 12 }}>
-                  Noch offen: {game.pendingQuetschSeats.map((seat) => game.names[seat]).join(", ")}
-                </div>
-              )}
-            </div>
-          ) : game.quetschNeeded ? (
+          {game.quetschNeeded ? (
             <>
               <h3 style={{ color: "#f4c430", textAlign: "center" }}>Quetsch: 3 Karten an {game.names[game.quetschTarget]}</h3>
               <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 16 }}>
@@ -571,11 +515,9 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
         <div style={{ marginTop: 22, textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.75)" }}>
           <h3 style={{ color: "#f4c430", marginTop: 0 }}>Spiel beginnt gleich</h3>
           <div style={{ color: "rgba(255,255,255,0.6)", lineHeight: 1.45 }}>
-            {game.yourSeat === null
-              ? "Die Quetschphase ist abgeschlossen. Gleich beginnt die Spielphase."
-              : <>Diese 3 Karten kommen von {game.names[game.quetschSource]}. Gleich beginnt die Spielphase.</>}
+            Diese 3 Karten kommen von {game.names[game.quetschSource]}. Gleich beginnt die Spielphase.
           </div>
-          {game.yourSeat !== null && <QuetschSlots cards={game.quetschReceived || []} />}
+          <QuetschSlots cards={game.quetschReceived || []} />
           {game.yourSeat !== null && (
             <div style={{ marginTop: 16 }}>
               <div style={{ color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, marginBottom: 8 }}>DEINE HAND NACH DEM QUETSCH</div>
@@ -649,26 +591,20 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
             </>
           )}
 
-          {game.yourSeat === null ? (
-            <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: isTrickPause ? 18 : 0 }}>
-              Du schaust zu. Die Handkarten der Spieler bleiben verdeckt.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8, marginTop: isTrickPause ? 18 : 0 }}>
-              {game.hand.map((card) => {
-                const canPlay = !isTrickPause && game.currentPlayer === game.yourSeat && validHas(card);
-                return (
-                  <CardFace
-                    key={cardId(card)}
-                    card={card}
-                    highlighted={canPlay}
-                    dimmed={!isTrickPause && game.currentPlayer === game.yourSeat && !validHas(card)}
-                    onClick={canPlay ? () => playCard(card) : null}
-                  />
-                );
-              })}
-            </div>
-          )}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8, marginTop: isTrickPause ? 18 : 0 }}>
+            {game.hand.map((card) => {
+              const canPlay = !isTrickPause && game.currentPlayer === game.yourSeat && validHas(card);
+              return (
+                <CardFace
+                  key={cardId(card)}
+                  card={card}
+                  highlighted={canPlay}
+                  dimmed={!isTrickPause && game.currentPlayer === game.yourSeat && !validHas(card)}
+                  onClick={canPlay ? () => playCard(card) : null}
+                />
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -800,25 +736,6 @@ export default function OnlineLobby({ onBack }) {
     if (!res?.ok) setError(res?.message || "Platz konnte nicht belegt werden.");
   }
 
-  async function spectateRoom() {
-    if (!room) return;
-    setError("");
-    const res = await emitAck("spectateRoom", { roomCode: room.roomCode });
-    if (!res?.ok) setError(res?.message || "Zuschauen ist gerade nicht möglich.");
-  }
-
-  async function takeOverBotSeat(seat = null) {
-    if (!room) return;
-    setError("");
-    const res = await emitAck("takeOverBotSeat", {
-      roomCode: room.roomCode,
-      seat,
-      name,
-    });
-    if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
-    if (!res?.ok) setError(res?.message || "Bot konnte nicht übernommen werden.");
-  }
-
   async function setBot(seat) {
     if (!room) return;
     const res = await emitAck("setSeatBot", {
@@ -914,9 +831,9 @@ export default function OnlineLobby({ onBack }) {
 
         {room?.status === "playing" ? (
           game ? (
-            <OnlineGame room={room} game={game} setError={setError} onTakeOverBot={takeOverBotSeat} />
+            <OnlineGame room={room} game={game} setError={setError} />
           ) : (
-            <JoinInProgressScreen room={room} onTakeOverBot={takeOverBotSeat} onSpectate={spectateRoom} />
+            <div style={{ marginTop: 32, textAlign: "center", color: "rgba(255,255,255,0.65)" }}>Warte auf Spielstand…</div>
           )
         ) : !room ? (
           <div style={{ marginTop: 22, display: "grid", gap: 18 }}>

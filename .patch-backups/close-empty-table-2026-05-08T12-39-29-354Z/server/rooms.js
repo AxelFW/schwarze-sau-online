@@ -163,10 +163,6 @@ function isConnectedHumanSeat(room, seat) {
   return s?.type === "human" && Boolean(s.socketId);
 }
 
-function hasConnectedHumanPlayers(room) {
-  return Boolean(room?.seats?.some((s) => s.type === "human" && Boolean(s.socketId)));
-}
-
 function isBotControlledSeat(room, seat) {
   const s = room.seats[seat];
   return s?.type === "bot" || (s?.type === "human" && !s.socketId);
@@ -691,16 +687,6 @@ export function getPrivateGameView(room, socketId) {
 
 export function getSpectatorGameView(room) {
   return getPrivateGameView(room, null);
-}
-
-export function closeRoomIfNoConnectedHumanPlayers(roomCode) {
-  const code = normalizeCode(roomCode);
-  const room = rooms.get(code);
-  if (!room) return false;
-  if (hasConnectedHumanPlayers(room)) return false;
-  rooms.delete(code);
-  log("Tisch geschlossen, keine verbundenen Menschen", { roomCode: code });
-  return true;
 }
 
 export function leaveRoom({ roomCode, socketId }) {

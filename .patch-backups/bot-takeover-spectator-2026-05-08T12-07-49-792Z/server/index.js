@@ -8,8 +8,6 @@ import { Server } from "socket.io";
 import {
   createRoom,
   joinRoom,
-  spectateRoom,
-  takeOverBotSeat,
   claimSeat,
   setSeatBot,
   setSeatOpen,
@@ -24,11 +22,9 @@ import {
   getInternalRoom,
   publicRoom,
   getPrivateGameView,
-  getSpectatorGameView,
   publicRoomWithToken,
   advanceOneBotCard,
   advanceNonCardPhases,
-  closeRoomIfNoConnectedHumanPlayers,
   pruneExpiredRooms,
 } from "./rooms.js";
 
@@ -39,7 +35,6 @@ const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const BOT_DELAY_MS = Number(process.env.BOT_DELAY_MS || 650);
 const EXPIRY_SWEEP_MS = Number(process.env.EXPIRY_SWEEP_MS || 60_000);
-const EMPTY_TABLE_CLOSE_MS = Number(process.env.EMPTY_TABLE_CLOSE_MS || 60_000);
 
 const app = express();
 app.use(cors({ origin: NODE_ENV === "production" ? false : true }));
@@ -63,53 +58,6 @@ const io = new Server(httpServer, {
 });
 
 const advanceTimers = new Map();
-const emptyTableCloseTimers = new Map();
-
-function roomHasConnectedHumanPlayer(publicState) {
-  return Boolean(publicState?.seats?.some((seat) => seat.type === "human" && Boolean(seat.socketId)));
-}
-
-function clearEmptyTableCloseTimer(roomCode) {
-  const code = String(roomCode || "").trim().toUpperCase();
-  const timer = emptyTableCloseTimers.get(code);
-  if (!timer) return;
-  clearTimeout(timer);
-  emptyTableCloseTimers.delete(code);
-}
-
-function scheduleEmptyTableCloseIfNeeded(room, publicState = null) {
-  if (!room || room.status !== "playing") return;
-  const roomCode = room.roomCode;
-  const state = publicState || publicRoom(room);
-  if (roomHasConnectedHumanPlayer(state)) {
-    clearEmptyTableCloseTimer(roomCode);
-    return;
-  }
-  if (emptyTableCloseTimers.has(roomCode)) return;
-
-  const timer = setTimeout(() => {
-    emptyTableCloseTimers.delete(roomCode);
-    try {
-      const closed = closeRoomIfNoConnectedHumanPlayers(roomCode);
-      if (!closed) return;
-      const advanceTimer = advanceTimers.get(roomCode);
-      if (advanceTimer) {
-        clearTimeout(advanceTimer);
-        advanceTimers.delete(roomCode);
-      }
-      io.to(roomCode).emit("roomClosed", {
-        message: "Alle Spieler haben den Tisch verlassen. Der Tisch wurde geschlossen.",
-      });
-      log("Tisch ohne verbundene Spieler geschlossen", { roomCode });
-    } catch (err) {
-      log("Leerer Tisch konnte nicht geschlossen werden", { roomCode, error: err.message });
-    }
-  }, EMPTY_TABLE_CLOSE_MS);
-
-  timer.unref?.();
-  emptyTableCloseTimers.set(roomCode, timer);
-  log("Schließe Tisch ohne verbundene Spieler bald", { roomCode, delayMs: EMPTY_TABLE_CLOSE_MS });
-}
 
 function log(message, data = {}) {
   console.log(`[server] ${message}`, data);
@@ -125,7 +73,6 @@ function acknowledge(ack, payload) {
 
 function emitRoomAndGame(room) {
   const publicState = publicRoom(room);
-  scheduleEmptyTableCloseIfNeeded(room, publicState);
   io.to(room.roomCode).emit("roomUpdated", publicState);
   if (room.status !== "playing" || !room.game) return;
 
@@ -134,16 +81,6 @@ function emitRoomAndGame(room) {
       io.to(seat.socketId).emit("gameUpdated", {
         room: publicState,
         game: getPrivateGameView(room, seat.socketId),
-      });
-    }
-  }
-
-  for (const spectatorSocketId of room.spectators || []) {
-    const isSeated = room.seats.some((seat) => seat.type === "human" && seat.socketId === spectatorSocketId);
-    if (!isSeated) {
-      io.to(spectatorSocketId).emit("gameUpdated", {
-        room: publicState,
-        game: getSpectatorGameView(room),
       });
     }
   }
@@ -196,7 +133,6 @@ io.on("connection", (socket) => {
     try {
       const result = createRoom({ hostSocketId: socket.id, name: payload.name, settings: payload.settings });
       socket.join(result.room.roomCode);
-      clearEmptyTableCloseTimer(result.room.roomCode);
       io.to(result.room.roomCode).emit("roomUpdated", result.room);
       acknowledge(ack, { ok: true, ...saveTokenPayload(result) });
     } catch (err) {
@@ -212,36 +148,6 @@ io.on("connection", (socket) => {
       socket.join(room.roomCode);
       io.to(room.roomCode).emit("roomUpdated", room);
       acknowledge(ack, { ok: true, room });
-    } catch (err) {
-      sendError(socket, err.message);
-      acknowledge(ack, { ok: false, message: err.message });
-    }
-  });
-
-  socket.on("spectateRoom", (payload = {}, ack) => {
-    try {
-      const room = spectateRoom({ roomCode: payload.roomCode, socketId: socket.id });
-      socket.join(room.roomCode);
-      emitRoomAndGame(getInternalRoom(room.roomCode));
-      acknowledge(ack, { ok: true, room });
-    } catch (err) {
-      sendError(socket, err.message);
-      acknowledge(ack, { ok: false, message: err.message });
-    }
-  });
-
-  socket.on("takeOverBotSeat", (payload = {}, ack) => {
-    try {
-      const result = takeOverBotSeat({
-        roomCode: payload.roomCode,
-        socketId: socket.id,
-        name: payload.name,
-        seat: payload.seat,
-      });
-      socket.join(result.room.roomCode);
-      emitRoomAndGame(getInternalRoom(result.room.roomCode));
-      acknowledge(ack, { ok: true, ...saveTokenPayload(result) });
-      scheduleAdvance(result.room.roomCode, true);
     } catch (err) {
       sendError(socket, err.message);
       acknowledge(ack, { ok: false, message: err.message });
@@ -396,7 +302,6 @@ io.on("connection", (socket) => {
 
 setInterval(() => {
   for (const roomCode of pruneExpiredRooms()) {
-    clearEmptyTableCloseTimer(roomCode);
     io.to(roomCode).emit("roomClosed", { message: "Der Tisch wurde wegen Inaktivität geschlossen." });
   }
 }, EXPIRY_SWEEP_MS).unref?.();
