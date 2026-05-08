@@ -57,26 +57,29 @@ const bg={minHeight:'100vh',background:'radial-gradient(ellipse at 50% 0%,#1d5c4
 
 // Wuzz tweak: old German first-name pool for humans and bots.
 const OLD_GERMAN_FIRST_NAMES = [
-  "Friedrich",
+  "Ferdi",
   "Leopold",
   "Wilhelm",
   "Heinrich",
   "Albert",
   "Otto",
-  "Constantin",
-  "Theodor",
-  "Maximilian",
+  "Peter",
+  "Thomas",
+  "Gerhard",
   "Ludwig",
   "Adelheid",
   "Mathilde",
-  "Clementine",
+  "Gerhild",
   "Ottilie",
   "Therese",
-  "Wilhelmine",
+  "Oda",
   "Auguste",
-  "Eleonore",
-  "Elisabeth",
-  "Friederike"
+  "Ursula",
+  "Else",
+  "Ingrid",
+  "Sigrun",
+  "Egbert",
+  "Agnes"
 ];
 const randomFirstName = (used = []) => {
   const usedBase = new Set(used.map(n => String(n || '').replace(/\s*\(B\)$/, '')));

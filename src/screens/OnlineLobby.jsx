@@ -22,7 +22,7 @@ const OLD_GERMAN_FIRST_NAMES = [
   "Otto",
   "Peter",
   "Thomas",
-  "Michi",
+  "Gerhard",
   "Ludwig",
   "Adelheid",
   "Mathilde",
@@ -33,7 +33,10 @@ const OLD_GERMAN_FIRST_NAMES = [
   "Auguste",
   "Ursula",
   "Else",
-  "Ingrid"
+  "Ingrid",
+  "Sigrun",
+  "Egbert",
+  "Agnes"
 ];
 const randomFirstName = (used = []) => {
   const usedBase = new Set(used.map(n => String(n || '').replace(/\s*\(B\)$/, '')));
@@ -484,10 +487,12 @@ function OnlineGame({ room, game, setError }) {
             <div style={{ textAlign: "center", padding: "30px 16px", color: "rgba(255,255,255,0.72)" }}>
               <h3 style={{ color: "#f4c430", marginTop: 0 }}>Quetsch abgegeben</h3>
               <div style={{ color: "rgba(255,255,255,0.58)", lineHeight: 1.45 }}>
-                Du bekommst gleich 3 neue Karten von {game.names[game.quetschSource]}.<br />
+                {(game.quetschReceived || []).length === 3
+                  ? <>Diese 3 Karten kommen von {game.names[game.quetschSource]}.<br /></>
+                  : <>Du bekommst gleich 3 neue Karten von {game.names[game.quetschSource]}.<br /></>}
                 Warte, bis alle ihre Quetsch-Karten ausgewählt haben.
               </div>
-              <QuetschSlots cards={[]} />
+              <QuetschSlots cards={game.quetschReceived || []} />
               {game.yourSeat !== null && (
                 <div style={{ marginTop: 16 }}>
                   <div style={{ color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, marginBottom: 8 }}>DEINE HAND OHNE ABGEGEBENE KARTEN</div>
@@ -508,11 +513,19 @@ function OnlineGame({ room, game, setError }) {
 
       {game.phase === "quetsch_review" && (
         <div style={{ marginTop: 22, textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.75)" }}>
-          <h3 style={{ color: "#f4c430", marginTop: 0 }}>Neue Quetsch-Karten</h3>
+          <h3 style={{ color: "#f4c430", marginTop: 0 }}>Spiel beginnt gleich</h3>
           <div style={{ color: "rgba(255,255,255,0.6)", lineHeight: 1.45 }}>
             Diese 3 Karten kommen von {game.names[game.quetschSource]}. Gleich beginnt die Spielphase.
           </div>
           <QuetschSlots cards={game.quetschReceived || []} />
+          {game.yourSeat !== null && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, marginBottom: 8 }}>DEINE HAND NACH DEM QUETSCH</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, justifyContent: "center", padding: 10, borderRadius: 12, background: "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                {game.hand.map((card) => <CardFace key={cardId(card)} card={card} size="sm" />)}
+              </div>
+            </div>
+          )}
           <div style={{ fontSize: 13, color: "rgba(255,255,255,0.42)" }}>Bereit machen für den ersten Stich…</div>
         </div>
       )}
