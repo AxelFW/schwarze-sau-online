@@ -146,33 +146,221 @@ const queenSpadesStillOutNotInHand = (gs, player) =>
 const remainingPublicSuitCount = (gs, player, suit) =>
   unseenCardsOfSuit(gs, player, suit).length;
 
-const protectedQueenHighHeartDumpCandidates = (valid, gs, player) => {
-  // Void-dump exception: when ♠Q is protected by at least three other spades,
-  // exposed high hearts become more urgent than the queen.  If the hand has
-  // ♥10–♥A but fewer than two small hearts (♥2–♥7), dump the highest high
-  // heart before ♠Q.
+const numericScoreArray = value =>
+  Array.isArray(value) && value.length >= 4 && value.slice(0,4).every(x => Number.isFinite(Number(x)))
+    ? value.slice(0,4).map(Number)
+    : null;
+
+const scoreVectorFromPlayers = players => {
+  if(!Array.isArray(players) || players.length < 4) return null;
+  const keys = ['projectedScore', 'score', 'totalScore', 'points', 'total', 'cumScore'];
+  for(const key of keys) {
+    const scores = players.slice(0,4).map(p => Number(p?.[key]));
+    if(scores.every(Number.isFinite)) return scores;
+  }
+  return null;
+};
+
+const publicScoreVector = gs => {
+  // Prefer projected totals if the game state provides them. Otherwise use the
+  // public total scoreboard and, if present, add the current round component.
+  const totalKeys = [
+    'projectedScores', 'projectedTotals', 'liveScores', 'currentScores',
+    'totalScores', 'scores', 'scoreTotals', 'totals', 'scoreboard',
+  ];
+  let totals = null;
+  for(const key of totalKeys) {
+    totals = numericScoreArray(gs?.[key]);
+    if(totals) break;
+  }
+  if(!totals) totals = scoreVectorFromPlayers(gs?.players);
+  if(!totals) return null;
+
+  const roundKeys = ['roundScores', 'roundScore', 'currentRoundScores', 'roundTotals'];
+  let round = null;
+  for(const key of roundKeys) {
+    round = numericScoreArray(gs?.[key]);
+    if(round) break;
+  }
+  return round ? totals.map((s, i) => s + round[i]) : totals;
+};
+
+const scoreHigherIsBetter = gs => gs?.scoreHigherIsBetter ?? gs?.higherScoreIsBetter ?? true;
+const effectiveScores = gs => {
+  const scores = publicScoreVector(gs);
+  if(!scores) return null;
+  return scoreHigherIsBetter(gs) ? scores : scores.map(x => -x);
+};
+
+const playerRankRelation = (gs, player, recipient) => {
+  const scores = effectiveScores(gs);
+  if(!scores || !Number.isInteger(recipient) || recipient < 0 || recipient >= scores.length) return 'unknown';
+
+  const own = scores[player];
+  const rec = scores[recipient];
+  const best = Math.max(...scores);
+  const ownIsTop = own === best;
+
+  // Equal scores are treated as equal ranks.  The only exception is a co-leader
+  // while we are also first: that player is an immediate title rival.
+  if(rec === own) return ownIsTop && recipient !== player ? 'target' : 'peer';
+
+  if(!ownIsTop) return rec > own ? 'target' : 'nontarget';
+
+  // We are currently first.  Target all closest pursuers, including ties among
+  // them, and treat lower players as non-targets.
+  const below = scores.filter(score => score < own);
+  if(!below.length) return 'peer';
+  const closestPursuer = Math.max(...below);
+  return rec === closestPursuer ? 'target' : 'nontarget';
+};
+
+const playersAfterCurrentInTrick = (gs, player) => {
+  const remainingAfterBot = Math.max(0, 3 - gs.trick.length);
+  return Array.from({length: remainingAfterBot}, (_, i) => (player + i + 1) % 4);
+};
+
+const certainTrickRecipient = (gs, player) => {
+  if(!gs.leadSuit || !gs.trick.length) return null;
+
+  const leadPlays = gs.trick.filter(x => x.card.s === gs.leadSuit);
+  if(!leadPlays.length) return null;
+  const winner = leadPlays.reduce((best, x) => x.card.v > best.card.v ? x : best, leadPlays[0]);
+  const winningRank = winner.card.v;
+
+  // If the bot is void, its dump cannot win the led suit trick.  The current
+  // winner is certain when no future player can still beat the current rank.
+  if(gs.trick.length === 3 || winningRank === 14) return winner.player;
+  if(!unseenCardsOfSuit(gs, player, gs.leadSuit).some(c => c.v > winningRank)) return winner.player;
+
+  const si = suitIdx(gs.leadSuit);
+  const futurePlayers = playersAfterCurrentInTrick(gs, player);
+  if(futurePlayers.length && futurePlayers.every(p => gs.knownVoids?.[p]?.[si])) return winner.player;
+
+  return null;
+};
+
+const criticalVoidDumpCandidates = (valid, gs, player) => {
   const hand = gs.hands[player];
-  if(!cardIn(hand, QUEEN_SPADES)) return [];
+  const urgent = [];
 
-  const otherSpades = hand.filter(c => c.s === 'S' && !sameCard(c, QUEEN_SPADES));
-  if(otherSpades.length < 3) return [];
+  // ♠Q is urgent only when it has fewer than two other spade guards.
+  const queen = valid.find(c => sameCard(c, QUEEN_SPADES));
+  if(queen) {
+    const otherSpades = hand.filter(c => c.s === 'S' && !sameCard(c, QUEEN_SPADES));
+    if(otherSpades.length < 2) urgent.push(queen);
+  }
 
-  const hearts = hand.filter(c => c.s === 'H');
-  const highHearts = hearts.filter(c => c.v >= 10);
-  const smallHearts = hearts.filter(c => c.v <= 7);
-  if(!highHearts.length || smallHearts.length >= 2) return [];
+  // ♥J–♥A are urgent only when the hand lacks two ♥2–♥9 protectors/exits.
+  const heartProtection = hand.filter(c => c.s === 'H' && c.v >= 2 && c.v <= 9).length;
+  if(heartProtection < 2) {
+    urgent.push(...valid.filter(c => c.s === 'H' && c.v >= 11));
+  }
 
-  const dumpableHighHearts = valid.filter(c => c.s === 'H' && c.v >= 10);
-  return dumpableHighHearts.length ? largestCards(dumpableHighHearts) : [];
+  return sortByNegativityDesc(urgent);
+};
+
+const handSuitCountAfterDump = (gs, player, card) =>
+  gs.hands[player].filter(c => c.s === card.s && !sameCard(c, card)).length;
+
+const createsVoidAfterDump = (gs, player, card) => handSuitCountAfterDump(gs, player, card) === 0;
+const shortensSuitValue = (gs, player, card) => {
+  const after = handSuitCountAfterDump(gs, player, card);
+  return Math.max(0, 4 - after);
+};
+
+const spadeExposurePenalty = (card, gs, player, relation) => {
+  if(card.s !== 'S') return 0;
+  const hand = gs.hands[player];
+  const qInHand = queenSpadesInHand(gs, player);
+  const target = relation === 'target';
+
+  // Dumping ♠Q into a non-target trick wastes the poison and removes a guarded
+  // card that could have hit a direct rival later.
+  if(sameCard(card, QUEEN_SPADES)) return target ? 0 : 45;
+
+  // If we hold ♠Q, non-queen spades are guards.  Do not spend them merely for
+  // shape against a lower-ranked recipient.
+  if(qInHand) {
+    const guardsAfter = hand.filter(c => c.s === 'S' && !sameCard(c, QUEEN_SPADES) && !sameCard(c, card)).length;
+    if(guardsAfter < 2) return target ? 10 : 45;
+    return target ? 0 : 12;
+  }
+
+  // If ♠Q is still outside and we hold ♠K/♠A, low spades protect those high
+  // spades from being trapped.  Avoid spending the last guards against a lower
+  // player.  Dumping ♠K/♠A themselves is allowed as danger relief, but less
+  // attractive when the recipient is not a target.
+  if(queenSpadesStillOutNotInHand(gs, player)) {
+    const highSpadesHeld = hand.some(c => c.s === 'S' && (c.v === 13 || c.v === 14));
+    if(card.v < 12 && highSpadesHeld) {
+      const lowGuardsAfter = hand.filter(c => c.s === 'S' && c.v < 12 && !sameCard(c, card)).length;
+      if(lowGuardsAfter < 2) return target ? 8 : 38;
+    }
+    if(card.v === 13 || card.v === 14) return target ? 0 : 16;
+  }
+
+  return 0;
+};
+
+const strategicVoidDump = (valid, gs, player) => {
+  const recipient = certainTrickRecipient(gs, player);
+  if(recipient === null || recipient === player) return null;
+
+  const relation = playerRankRelation(gs, player, recipient);
+  if(relation === 'unknown' || relation === 'peer') return null;
+
+  const targetWeight = relation === 'target' ? 1.65 : 0.45;
+  const shapeWeight = relation === 'target' ? 0.35 : 1.45;
+
+  const scored = valid.map(card => {
+    const penalty = Math.max(0, -cardPts(card));
+    const mediumMinor = (card.s === 'D' || card.s === 'C') && card.v >= 5 && card.v <= 11 ? 1 : 0;
+    const voidValue = createsVoidAfterDump(gs, player, card) ? 18 : 0;
+    const shortenValue = shortensSuitValue(gs, player, card) * 3;
+    const minorShapeValue = mediumMinor ? 10 : 0;
+    const exposure = spadeExposurePenalty(card, gs, player, relation);
+
+    let score = 0;
+    score += penalty * 10 * targetWeight;
+    score += (voidValue + shortenValue + minorShapeValue) * shapeWeight;
+    score -= exposure;
+
+    // Against non-targets, keep truly poisonous cards for better targets unless
+    // they also solve a major hand-shape problem.
+    if(relation === 'nontarget' && (sameCard(card, QUEEN_SPADES) || (card.s === 'H' && card.v >= 11))) {
+      score -= 22;
+    }
+
+    // Stable tie-breaks: prefer larger poison against targets, but safer medium
+    // minors / shorter suits against non-targets.
+    const tiePenalty = relation === 'target' ? penalty : -penalty;
+    const tieRank = relation === 'target' ? card.v : -card.v;
+    return {card, score, tiePenalty, tieRank};
+  });
+
+  scored.sort((a,b) =>
+    b.score - a.score ||
+    b.tiePenalty - a.tiePenalty ||
+    b.tieRank - a.tieRank
+  );
+  return scored[0]?.card ?? null;
 };
 
 const voidDump = (valid, gs, player) => {
-  // 0. Protected-♠Q exception: if ♠Q is stable for now but high hearts are
-  // insufficiently protected, dump ♥10–♥A before dumping ♠Q.
-  const protectedQHeartDumps = protectedQueenHighHeartDumpCandidates(valid, gs, player);
-  if(protectedQHeartDumps.length) return protectedQHeartDumps[0];
+  // 1a. True emergency dumps.  These override politics: escape ♠Q when it has
+  // fewer than two spade guards, and escape ♥J–♥A when there are fewer than two
+  // ♥2–♥9 protectors.
+  const emergencyDumps = criticalVoidDumpCandidates(valid, gs, player);
+  if(emergencyDumps.length) return emergencyDumps[0];
 
-  // 1. Urgent penalties first: ♠Q and ♥6–♥A.
+  // 1b. Strategic recipient-aware dumping.  Only active when the current trick
+  // recipient is certain and public scores are available in gs.
+  const strategicDump = strategicVoidDump(valid, gs, player);
+  if(strategicDump) return strategicDump;
+
+  // 1c. Ordinary high-negative fallback for uncertain recipients / missing
+  // scores: use the previous safety-first dump order.
   const highNegatives = valid.filter(isHighNegativeForDump);
   if(highNegatives.length) return sortByNegativityDesc(highNegatives)[0];
 

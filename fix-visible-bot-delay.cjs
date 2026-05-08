@@ -1,0 +1,173 @@
+#!/usr/bin/env node
+/*
+  Makes bot cards visibly delayed.
+
+  This fixes two cases that can still feel instant after only changing
+  scheduleAdvance(..., true) to scheduleAdvance(..., false):
+
+  1) Server-side online play:
+     If a non-card phase ends (e.g. trick_done -> play or quetsch_review -> play),
+     the old timer could finish the phase and play the next bot card in the same
+     tick. This patch emits the phase transition first and schedules the bot card
+     for the next BOT_DELAY_MS tick.
+
+  2) Local/offline play:
+     The React-only local bot delay was hard-coded to 320ms. This patch changes it
+     to VITE_LOCAL_BOT_DELAY_MS or 650ms by default.
+
+  Run from the repo root:
+    node fix-visible-bot-delay.cjs
+*/
+
+const fs = require('fs');
+const path = require('path');
+
+const root = process.cwd();
+const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+function read(file) {
+  return fs.readFileSync(file, 'utf8');
+}
+
+function write(file, content) {
+  fs.writeFileSync(file, content);
+}
+
+function backup(file) {
+  const bak = `${file}.bak-visible-bot-delay-${stamp}`;
+  fs.copyFileSync(file, bak);
+  return bak;
+}
+
+function replaceScheduleAdvance() {
+  const file = path.join(root, 'server', 'index.js');
+  if (!fs.existsSync(file)) throw new Error(`Missing ${file}`);
+  let src = read(file);
+
+  const start = src.indexOf('function scheduleAdvance(');
+  const marker = 'function scheduleDisconnectedBotAdvanceIfNeeded';
+  const end = src.indexOf(marker, start);
+  if (start < 0 || end < 0) {
+    throw new Error('Could not locate scheduleAdvance(...) in server/index.js');
+  }
+
+  const newFn = `function scheduleAdvance(roomCode, immediate = false, delayOverrideMs = null) {
+  const code = String(roomCode || "").trim().toUpperCase();
+  if (!code) return;
+  if (advanceTimers.has(code)) return;
+
+  const configuredDelay = Number(BOT_DELAY_MS);
+  const normalDelay = Number.isFinite(configuredDelay) ? Math.max(0, configuredDelay) : 650;
+  const hasDelayOverride = delayOverrideMs !== null && delayOverrideMs !== undefined && delayOverrideMs !== "";
+  const explicitDelay = hasDelayOverride ? Number(delayOverrideMs) : NaN;
+  const delay = Number.isFinite(explicitDelay)
+    ? Math.max(0, explicitDelay)
+    : (immediate ? 0 : normalDelay);
+
+  const timer = setTimeout(() => {
+    advanceTimers.delete(code);
+    let room;
+    try {
+      room = getInternalRoom(code);
+
+      // Important: first advance only non-card phases and emit that visible
+      // transition. If this changed phase/player, do NOT play a bot card in
+      // the same timer tick. Schedule the card for the next BOT_DELAY_MS tick.
+      const beforePhase = room.game?.phase || null;
+      const beforePlayer = room.game?.gs?.currentPlayer ?? null;
+      advanceNonCardPhases(room);
+      emitRoomAndGame(room);
+      const afterPhase = room.game?.phase || null;
+      const afterPlayer = room.game?.gs?.currentPlayer ?? null;
+      const nonCardTransitioned = beforePhase !== afterPhase || beforePlayer !== afterPlayer;
+
+      if (nonCardTransitioned) {
+        if (room.status === "playing" && room.game?.phase !== "gameover" && room.game?.phase !== "round_done") {
+          scheduleAdvance(code, false);
+        }
+        return;
+      }
+
+      const moved = advanceOneBotCard(room);
+      emitRoomAndGame(room);
+
+      if (room.status === "playing" && (room.game?.phase === "quetsch_review" || room.game?.phase === "trick_done")) {
+        scheduleAdvance(code, false);
+      } else if (moved && room.status === "playing" && room.game?.phase !== "gameover" && room.game?.phase !== "round_done") {
+        scheduleAdvance(code, false);
+      }
+    } catch (err) {
+      log("Automatischer Spielfortschritt fehlgeschlagen", { roomCode: code, error: err.message });
+      if (room) emitRoomAndGame(room);
+    }
+  }, delay);
+  timer.unref?.();
+  advanceTimers.set(code, timer);
+}
+
+`;
+
+  let next = src.slice(0, start) + newFn + src.slice(end);
+
+  // Keep previous fix: external triggers should use the normal visible delay.
+  next = next.replace(/scheduleAdvance\(([^\n;]*?),\s*true\s*\)/g, 'scheduleAdvance($1, false)');
+
+  if (next !== src) {
+    const bak = backup(file);
+    write(file, next);
+    console.log(`Patched server/index.js (backup: ${path.relative(root, bak)})`);
+  } else {
+    console.log('server/index.js already looked patched.');
+  }
+}
+
+function patchLocalBotDelay() {
+  const file = path.join(root, 'src', 'App.jsx');
+  if (!fs.existsSync(file)) {
+    console.log('src/App.jsx not found; skipped local/offline bot delay patch.');
+    return;
+  }
+  let src = read(file);
+  let next = src;
+
+  if (!next.includes('LOCAL_BOT_DELAY_MS')) {
+    next = next.replace(
+      /const TRICK_DONE_AUTO_ADVANCE_MS = 1400;\s*/,
+      'const TRICK_DONE_AUTO_ADVANCE_MS = 1400;\n  const LOCAL_BOT_DELAY_MS = Number(import.meta.env.VITE_LOCAL_BOT_DELAY_MS || 650);\n'
+    );
+  }
+
+  next = next.replace(
+    /await new Promise\(r => setTimeout\(r,\s*320\)\);/g,
+    'await new Promise(r => setTimeout(r, LOCAL_BOT_DELAY_MS));'
+  );
+
+  if (next !== src) {
+    const bak = backup(file);
+    write(file, next);
+    console.log(`Patched src/App.jsx local bot delay (backup: ${path.relative(root, bak)})`);
+  } else {
+    console.log('src/App.jsx local bot delay already looked patched or pattern not found.');
+  }
+}
+
+function patchEnvExample() {
+  const file = path.join(root, '.env.example');
+  if (!fs.existsSync(file)) return;
+  let src = read(file);
+  let next = src;
+  if (!/VITE_LOCAL_BOT_DELAY_MS=/.test(next)) {
+    next = next.replace(/BOT_DELAY_MS=.*\n/, (m) => `${m}VITE_LOCAL_BOT_DELAY_MS=650\n`);
+  }
+  if (next !== src) {
+    const bak = backup(file);
+    write(file, next);
+    console.log(`Patched .env.example (backup: ${path.relative(root, bak)})`);
+  }
+}
+
+replaceScheduleAdvance();
+patchLocalBotDelay();
+patchEnvExample();
+console.log('Done. Restart the dev server after running this script.');
+console.log('For a more obvious test, temporarily set BOT_DELAY_MS=1200 and VITE_LOCAL_BOT_DELAY_MS=1200.');

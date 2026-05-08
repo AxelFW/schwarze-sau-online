@@ -18,6 +18,7 @@ const QUETSCH_REVIEW_MS = Number(process.env.QUETSCH_REVIEW_MS || 2600);
 // Delay after the fourth card of a trick is visible before the next trick starts.
 const TRICK_DISPLAY_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRICK_REVIEW_MS || 1400);
 const FINAL_TRICK_DISPLAY_MS = Number(process.env.FINAL_TRICK_DISPLAY_MS || Math.max(TRICK_DISPLAY_MS, 2600));
+const DISCONNECTED_HUMAN_BOT_DELAY_MS = Number(process.env.DISCONNECTED_HUMAN_BOT_DELAY_MS || 20_000);
 
 // Wuzz tweak: old German first-name pool for bot seats.
 const BOT_FIRST_NAMES = [
@@ -82,6 +83,8 @@ function emptySeats() {
     socketId: null,
     reconnectToken: null,
     disconnected: false,
+    disconnectedAt: null,
+    botControlAfter: null,
   }));
 }
 
@@ -131,6 +134,8 @@ export function publicRoom(room) {
       name: s.name,
       socketId: s.socketId,
       disconnected: Boolean(s.disconnected),
+      botControlled: isBotControlledSeat(room, s.seat),
+      botControlAvailableAt: s.disconnected ? (s.botControlAfter || null) : null,
       isHost: Boolean(s.socketId && s.socketId === room.hostSocketId),
     })),
     createdAt: room.createdAt,
@@ -167,9 +172,46 @@ function hasConnectedHumanPlayers(room) {
   return Boolean(room?.seats?.some((s) => s.type === "human" && Boolean(s.socketId)));
 }
 
+function isDisconnectedHumanBotReady(seat, now = Date.now()) {
+  return seat?.type === "human" && !seat.socketId && Boolean(seat.disconnected) &&
+    Number.isFinite(Number(seat.botControlAfter)) && now >= Number(seat.botControlAfter);
+}
+
 function isBotControlledSeat(room, seat) {
   const s = room.seats[seat];
-  return s?.type === "bot" || (s?.type === "human" && !s.socketId);
+  return s?.type === "bot" || isDisconnectedHumanBotReady(s);
+}
+
+export function nextDisconnectedBotControlAt(room) {
+  if (!room?.seats) return null;
+  const futureTimes = room.seats
+    .filter((s) => s.type === "human" && !s.socketId && Boolean(s.disconnected) && Number.isFinite(Number(s.botControlAfter)))
+    .map((s) => Number(s.botControlAfter));
+  return futureTimes.length ? Math.min(...futureTimes) : null;
+}
+
+function publicScoresForBot(room) {
+  const scores = room?.game?.scores || [0, 0, 0, 0];
+  const roundScores = room?.game?.gs?.roundPts || [0, 0, 0, 0];
+  return {
+    scores: [...scores],
+    roundScores: [...roundScores],
+    projectedScores: scores.map((score, i) => score + (roundScores[i] || 0)),
+    scoreHigherIsBetter: true,
+  };
+}
+
+function botDecisionGameState(room) {
+  return {
+    ...room.game.gs,
+    ...publicScoresForBot(room),
+  };
+}
+
+function playerOwnsDisconnectedSeat(seat, token, name) {
+  if (!seat || seat.type !== "human" || seat.socketId || !seat.disconnected) return false;
+  if (token && seat.reconnectToken && seat.reconnectToken === token) return true;
+  return Boolean(name) && cleanName(name) === seat.name;
 }
 
 function validateCardsInHand(hand, cards, requiredCount) {
@@ -381,7 +423,7 @@ export function advanceOneBotCard(room) {
   if (game.phase !== "play") return false;
   const player = game.gs.currentPlayer;
   if (!isBotControlledSeat(room, player)) return false;
-  const card = chooseHeuristicCard(game.gs, player);
+  const card = chooseHeuristicCard(botDecisionGameState(room), player);
   log("Bot spielt Karte", { roomCode: room.roomCode, seat: player, card });
   applyOnlineCard(room, player, card);
   advanceNonCardPhases(room);
@@ -412,6 +454,8 @@ export function createRoom({ hostSocketId, name, settings = {} }) {
     socketId: hostSocketId,
     reconnectToken: makeToken(),
     disconnected: false,
+    disconnectedAt: null,
+    botControlAfter: null,
   };
   const room = {
     roomCode,
@@ -447,7 +491,7 @@ export function spectateRoom({ roomCode, socketId }) {
   return publicRoom(room);
 }
 
-export function takeOverBotSeat({ roomCode, socketId, name, seat = null }) {
+export function takeOverBotSeat({ roomCode, socketId, name, seat = null, reconnectToken = null }) {
   const room = requireRoom(roomCode);
   if (room.status !== "playing" || !room.game) throw new Error("Der Tisch spielt gerade nicht.");
   if (findSeatForSocket(room, socketId)) throw new Error("Du sitzt bereits an diesem Tisch.");
@@ -457,23 +501,41 @@ export function takeOverBotSeat({ roomCode, socketId, name, seat = null }) {
     throw new Error("Ungültiger Bot-Platz.");
   }
 
-  const target = requestedSeat === null
-    ? room.seats.find((s) => s.type === "bot")
-    : room.seats[requestedSeat];
+  const ownedDisconnectedSeats = room.seats.filter((s) => playerOwnsDisconnectedSeat(s, reconnectToken, name));
+  let target = null;
 
-  if (!target || target.type !== "bot") throw new Error("Es gibt keinen Bot-Platz, den du übernehmen kannst.");
+  if (ownedDisconnectedSeats.length) {
+    // If the joining client has a previous disconnected seat, do not allow it to
+    // jump to an unrelated fresh bot seat.  This preserves seat/hand continuity.
+    target = requestedSeat === null
+      ? ownedDisconnectedSeats[0]
+      : ownedDisconnectedSeats.find((s) => s.seat === requestedSeat);
+    if (!target) throw new Error("Du kannst nur deinen bisherigen Platz wieder übernehmen.");
+  } else {
+    target = requestedSeat === null
+      ? room.seats.find((s) => s.type === "bot")
+      : room.seats[requestedSeat];
+    if (!target || target.type !== "bot") throw new Error("Es gibt keinen Bot-Platz, den du übernehmen kannst.");
+  }
 
   target.type = "human";
-  target.name = cleanName(name);
+  target.name = cleanName(name || target.name);
   target.socketId = socketId;
   target.reconnectToken = makeToken();
   target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
   room.spectators?.delete(socketId);
 
-  log("Bot-Platz wurde übernommen", { roomCode: room.roomCode, seat: target.seat, socketId });
+  log(ownedDisconnectedSeats.length ? "Vorheriger Platz wurde wieder übernommen" : "Bot-Platz wurde übernommen", {
+    roomCode: room.roomCode,
+    seat: target.seat,
+    socketId,
+  });
   advanceNonCardPhases(room);
   return publicRoomWithToken(room, socketId);
 }
+
 
 
 export function claimSeat({ roomCode, socketId, name, seat }) {
@@ -491,6 +553,8 @@ export function claimSeat({ roomCode, socketId, name, seat }) {
       s.socketId = null;
       s.reconnectToken = null;
       s.disconnected = false;
+      s.disconnectedAt = null;
+      s.botControlAfter = null;
     }
   }
 
@@ -499,6 +563,8 @@ export function claimSeat({ roomCode, socketId, name, seat }) {
   target.socketId = socketId;
   target.reconnectToken = makeToken();
   target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
   log("Sitzplatz belegt", { roomCode: room.roomCode, seat: seatIndex, socketId });
   return publicRoomWithToken(room, socketId);
 }
@@ -509,6 +575,8 @@ export function reconnectSeat({ roomCode, socketId, token }) {
   if (!seat) throw new Error("Wiederverbindung nicht möglich.");
   seat.socketId = socketId;
   seat.disconnected = false;
+  seat.disconnectedAt = null;
+  seat.botControlAfter = null;
   if (!room.hostSocketId && seat.reconnectToken === token) room.hostSocketId = socketId;
   log("Spieler wiederverbunden", { roomCode: room.roomCode, seat: seat.seat, socketId });
   return publicRoomWithToken(room, socketId);
@@ -528,6 +596,8 @@ export function setSeatBot({ roomCode, socketId, seat }) {
   target.socketId = null;
   target.reconnectToken = null;
   target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
   log("Sitzplatz auf Bot gesetzt", { roomCode: room.roomCode, seat: seatIndex });
   return publicRoom(room);
 }
@@ -546,6 +616,8 @@ export function setSeatOpen({ roomCode, socketId, seat }) {
   target.socketId = null;
   target.reconnectToken = null;
   target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
   log("Sitzplatz geöffnet", { roomCode: room.roomCode, seat: seatIndex });
   return publicRoom(room);
 }
@@ -640,7 +712,7 @@ export function getPrivateGameView(room, socketId) {
   const game = room.game;
   const gs = game.gs;
   const names = room.seats.map((s) => s.name || (s.type === "bot" ? "Bot (B)" : `Platz ${s.seat + 1}`));
-  const seatTypes = room.seats.map((s) => (s.type === "human" && s.disconnected ? "bot" : s.type));
+  const seatTypes = room.seats.map((s) => (s.type === "human" && isBotControlledSeat(room, s.seat) ? "bot" : s.type));
   const ownQuetschSelection = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex])
     ? game.quetschSelections[seatIndex]
     : [];
@@ -712,10 +784,13 @@ export function leaveRoom({ roomCode, socketId }) {
     log("Host verlässt Lobby, Tisch geschlossen", { roomCode: room.roomCode });
     return { closed: true, roomCode: room.roomCode };
   }
+  const now = Date.now();
   for (const s of room.seats) {
     if (s.type === "human" && s.socketId === socketId) {
       s.socketId = null;
       s.disconnected = true;
+      s.disconnectedAt = now;
+      s.botControlAfter = now + DISCONNECTED_HUMAN_BOT_DELAY_MS;
     }
   }
   if (isHost) room.hostSocketId = null;
@@ -735,10 +810,13 @@ export function leaveAllRoomsForSocket(socketId) {
       log("Host getrennt, Lobby geschlossen", { roomCode: room.roomCode });
     } else {
       room.spectators?.delete(socketId);
+      const now = Date.now();
       for (const s of room.seats) {
         if (s.type === "human" && s.socketId === socketId) {
           s.socketId = null;
           s.disconnected = true;
+          s.disconnectedAt = now;
+          s.botControlAfter = now + DISCONNECTED_HUMAN_BOT_DELAY_MS;
         }
       }
       if (room.hostSocketId === socketId) room.hostSocketId = null;

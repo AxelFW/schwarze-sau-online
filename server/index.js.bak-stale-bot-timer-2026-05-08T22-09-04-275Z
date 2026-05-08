@@ -102,7 +102,11 @@ function scheduleEmptyTableCloseIfNeeded(room, publicState = null) {
     try {
       const closed = closeRoomIfNoConnectedHumanPlayers(roomCode);
       if (!closed) return;
-      clearAdvanceTimer(roomCode);
+      const advanceTimer = advanceTimers.get(roomCode);
+      if (advanceTimer) {
+        clearTimeout(advanceTimer);
+        advanceTimers.delete(roomCode);
+      }
       clearDisconnectedBotAdvanceTimer(roomCode);
       io.to(roomCode).emit("roomClosed", {
         message: "Alle Spieler haben den Tisch verlassen. Der Tisch wurde geschlossen.",
@@ -162,137 +166,27 @@ function emitRoomAndGameByCode(roomCode) {
   emitRoomAndGame(room);
 }
 
-function roomNeedsAutomaticAdvance(room) {
-  if (!room || room.status !== "playing" || !room.game) return false;
-  const game = room.game;
-  const phase = game.phase;
-  if (phase === "gameover" || phase === "round_done") return false;
-
-  // Review phases are automatic: the server has to wake up after the visible
-  // review time and transition to the next playable state.
-  if (phase === "quetsch_review" || phase === "trick_done") return true;
-
-  const publicState = publicRoom(room);
-
-  // In the card-play phase, only schedule if the current player is actually
-  // bot-controlled right now. This avoids leaving stale timers active while a
-  // human is thinking; those stale timers were the reason the next bot card
-  // could appear immediately after the human finally played.
-  if (phase === "play") {
-    const player = game.gs?.currentPlayer;
-    return Number.isInteger(player) && Boolean(publicState.seats?.[player]?.botControlled);
-  }
-
-  // During Quetsch, a disconnected human can become bot-controlled after the
-  // 20s grace period. Then the server needs one wake-up to submit that bot's
-  // Quetsch selection. Connected humans are not auto-advanced.
-  if (phase === "quetsch") {
-    return Boolean(game.quetschSelections?.some((selection, seat) => (
-      !Array.isArray(selection) && Boolean(publicState.seats?.[seat]?.botControlled)
-    )));
-  }
-
-  return false;
-}
-
-function clearAdvanceTimer(roomCode) {
-  const code = String(roomCode || "").trim().toUpperCase();
-  if (!code) return;
-  const entry = advanceTimers.get(code);
-  if (!entry) return;
-  clearTimeout(entry.timer || entry);
-  advanceTimers.delete(code);
-}
-
-function automaticAdvanceKey(room) {
-  if (!room || room.status !== "playing" || !room.game) return null;
-  const game = room.game;
-  const phase = game.phase;
-
-  if (phase === "play") {
-    const currentPlayer = game.gs?.currentPlayer;
-    if (!Number.isInteger(currentPlayer)) return null;
-    const publicState = publicRoom(room);
-    const seat = publicState?.seats?.[currentPlayer];
-    if (!seat?.botControlled) return null;
-
-    const tricksPlayed = Number(game.gs?.tricksPlayed || 0);
-    const trickLength = Array.isArray(game.gs?.trick) ? game.gs.trick.length : 0;
-    const handLength = Array.isArray(game.gs?.hands?.[currentPlayer]) ? game.gs.hands[currentPlayer].length : 0;
-    return "card:" + currentPlayer + ":" + tricksPlayed + ":" + trickLength + ":" + handLength;
-  }
-
-  if (phase === "quetsch") {
-    const publicState = publicRoom(room);
-    const selections = game.quetschSelections || [];
-    const hasBotQuetschPending = publicState?.seats?.some((seat, i) => seat?.botControlled && !Array.isArray(selections[i]));
-    const allReady = selections.length === 4 && selections.every((selection) => Array.isArray(selection) && selection.length === 3);
-    if (!hasBotQuetschPending && !allReady) return null;
-    return "quetsch:" + selections.map((selection) => Array.isArray(selection) ? "1" : "0").join("");
-  }
-
-  if (phase === "quetsch_review") {
-    return "quetsch_review:" + Number(game.quetschReviewUntil || 0);
-  }
-
-  if (phase === "trick_done") {
-    const trickLength = Array.isArray(game.lastTrick?.trick) ? game.lastTrick.trick.length : 0;
-    return "trick_done:" + Number(game.trickReviewUntil || 0) + ":" + (game.lastTrick?.winner ?? "") + ":" + (game.gs?.tricksPlayed ?? "") + ":" + trickLength;
-  }
-
-  return null;
-}
-
 function scheduleAdvance(roomCode, immediate = false, delayOverrideMs = null) {
   const code = String(roomCode || "").trim().toUpperCase();
   if (!code) return;
-
-  let room;
-  try {
-    room = getInternalRoom(code);
-  } catch {
-    clearAdvanceTimer(code);
-    return;
-  }
-
-  const key = automaticAdvanceKey(room);
-  if (!key) {
-    // Critical: if a human is now the current player, no old bot timer may survive.
-    clearAdvanceTimer(code);
-    return;
-  }
-
-  const existing = advanceTimers.get(code);
-  if (existing?.key === key) return;
-  if (existing) clearAdvanceTimer(code);
+  if (advanceTimers.has(code)) return;
 
   const configuredDelay = Number(BOT_DELAY_MS);
   const normalDelay = Number.isFinite(configuredDelay) ? Math.max(0, configuredDelay) : 650;
-  const hasDelayOverride = delayOverrideMs !== null && delayOverrideMs !== undefined && delayOverrideMs !== "";
-  const explicitDelay = hasDelayOverride ? Number(delayOverrideMs) : NaN;
+  const explicitDelay = Number(delayOverrideMs);
   const delay = Number.isFinite(explicitDelay)
     ? Math.max(0, explicitDelay)
     : (immediate ? 0 : normalDelay);
 
-  const scheduledKey = key;
   const timer = setTimeout(() => {
-    const currentEntry = advanceTimers.get(code);
-    if (currentEntry?.timer !== timer || currentEntry?.key !== scheduledKey) return;
     advanceTimers.delete(code);
-
     let room;
     try {
       room = getInternalRoom(code);
 
-      // If the room changed while the timer was pending, do not spend this old
-      // timer on the new state. Schedule again so the new current bot gets a
-      // fresh BOT_DELAY_MS from the moment it became current player.
-      const liveKey = automaticAdvanceKey(room);
-      if (liveKey !== scheduledKey) {
-        scheduleAdvance(code, false);
-        return;
-      }
-
+      // Important: first advance only non-card phases and emit that visible
+      // transition. If this changed phase/player, do NOT play a bot card in
+      // the same timer tick. Schedule the card for the next BOT_DELAY_MS tick.
       const beforePhase = room.game?.phase || null;
       const beforePlayer = room.game?.gs?.currentPlayer ?? null;
       advanceNonCardPhases(room);
@@ -302,14 +196,18 @@ function scheduleAdvance(roomCode, immediate = false, delayOverrideMs = null) {
       const nonCardTransitioned = beforePhase !== afterPhase || beforePlayer !== afterPlayer;
 
       if (nonCardTransitioned) {
-        scheduleAdvance(code, false);
+        if (room.status === "playing" && room.game?.phase !== "gameover" && room.game?.phase !== "round_done") {
+          scheduleAdvance(code, false);
+        }
         return;
       }
 
       const moved = advanceOneBotCard(room);
       emitRoomAndGame(room);
 
-      if (room.status === "playing" && room.game?.phase !== "gameover" && room.game?.phase !== "round_done") {
+      if (room.status === "playing" && (room.game?.phase === "quetsch_review" || room.game?.phase === "trick_done")) {
+        scheduleAdvance(code, false);
+      } else if (moved && room.status === "playing" && room.game?.phase !== "gameover" && room.game?.phase !== "round_done") {
         scheduleAdvance(code, false);
       }
     } catch (err) {
@@ -317,9 +215,8 @@ function scheduleAdvance(roomCode, immediate = false, delayOverrideMs = null) {
       if (room) emitRoomAndGame(room);
     }
   }, delay);
-
   timer.unref?.();
-  advanceTimers.set(code, { timer, key });
+  advanceTimers.set(code, timer);
 }
 
 function scheduleDisconnectedBotAdvanceIfNeeded(room) {

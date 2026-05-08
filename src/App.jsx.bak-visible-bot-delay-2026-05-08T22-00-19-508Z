@@ -221,8 +221,8 @@ export default function App() {
   const [botError,setBotError] = useState(null);
   const MAX = 8;
   const TRICK_DONE_AUTO_ADVANCE_MS = 1400;
-  const LOCAL_BOT_DELAY_MS = Number(import.meta.env.VITE_LOCAL_BOT_DELAY_MS || 650);
-// ── Play a card (human or bot) ─────────────────────────────────────────────
+
+  // ── Play a card (human or bot) ─────────────────────────────────────────────
   const commitCard = useCallback((prevGs, player, card) => {
     const newGs = applyCard(prevGs, player, card);
     if(!newGs) return;
@@ -243,7 +243,7 @@ export default function App() {
     setBotError(null);
     try {
       // Small delay so the UI has a moment to render the thinking indicator
-      await new Promise(r => setTimeout(r, LOCAL_BOT_DELAY_MS));
+      await new Promise(r => setTimeout(r, 320));
       const card = chooseHeuristicCard(currentGs, player);
       commitCard(currentGs, player, card);
     } catch(e) {

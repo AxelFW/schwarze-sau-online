@@ -341,9 +341,15 @@ function QuetschSlots({ cards = [] }) {
   );
 }
 
-function JoinInProgressScreen({ room, onTakeOverBot, onSpectate }) {
-  const botSeats = (room?.seats || []).filter((seat) => seat.type === "bot");
-  const canTakeOverBot = botSeats.length > 0;
+function JoinInProgressScreen({ room, playerName, onTakeOverBot, onSpectate }) {
+  const normalizedName = String(playerName || "").trim();
+  const ownDisconnectedSeats = (room?.seats || []).filter((seat) =>
+    seat.type === "human" && seat.disconnected && String(seat.name || "").trim() === normalizedName
+  );
+  const takeoverSeats = ownDisconnectedSeats.length
+    ? ownDisconnectedSeats
+    : (room?.seats || []).filter((seat) => seat.type === "bot");
+  const canTakeOverBot = takeoverSeats.length > 0;
 
   return (
     <div style={{ marginTop: 28, textAlign: "center", padding: "28px 18px", borderRadius: 16, background: "rgba(0,0,0,0.24)", border: "1px solid rgba(255,255,255,0.1)" }}>
@@ -352,17 +358,27 @@ function JoinInProgressScreen({ room, onTakeOverBot, onSpectate }) {
         Du kannst zuschauen oder einen Bot-Platz übernehmen und direkt mitspielen.
         Wenn du einen Bot übernimmst, spielst du mit dessen aktueller Hand, Punkten und Spielsituation weiter.
       </div>
+      {ownDisconnectedSeats.length > 0 && (
+        <div style={{ color: "#f4c430", fontSize: 13, marginTop: 12 }}>
+          Für deinen Namen gibt es bereits einen unterbrochenen Platz. Deshalb kannst du nur diesen Platz wieder übernehmen.
+        </div>
+      )}
       {canTakeOverBot && (
-        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, marginTop: 12 }}>
-          Verfügbare Bots: {botSeats.map((seat) => seat.name || `Bot ${seat.seat + 1}`).join(", ")}
+        <div style={{ marginTop: 16, display: "grid", gap: 10, maxWidth: 520, marginLeft: "auto", marginRight: "auto" }}>
+          {takeoverSeats.map((seat) => (
+            <div key={seat.seat} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", textAlign: "left" }}>
+              <div>
+                <strong>Platz {seat.seat + 1}</strong> · {seat.name || `Bot ${seat.seat + 1}`}
+                {seat.disconnected && <span style={{ color: "rgba(255,255,255,0.5)" }}> · bisheriger Platz</span>}
+              </div>
+              <Button onClick={() => onTakeOverBot(seat.seat)} style={{ padding: "8px 12px" }}>
+                Übernehmen
+              </Button>
+            </div>
+          ))}
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap", marginTop: 22 }}>
-        {canTakeOverBot && (
-          <Button onClick={() => onTakeOverBot()}>
-            Bot übernehmen
-          </Button>
-        )}
         <Button onClick={onSpectate} style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>
           Zuschauen
         </Button>
@@ -482,7 +498,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
         </div>
         <div style={{ color: "rgba(255,255,255,0.7)", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <span>Dein Sitz: {game.yourSeat === null ? "Zuschauer" : `Sitz ${game.yourSeat + 1}`}</span>
-          {game.yourSeat === null && room.seats?.some((seat) => seat.type === "bot") && (
+          {game.yourSeat === null && room.seats?.some((seat) => seat.type === "bot" || (seat.type === "human" && seat.disconnected && String(seat.name || "").trim() === String(localStorage.getItem("wuzzName") || "").trim())) && (
             <Button onClick={takeOverBotFromGame} style={{ padding: "8px 12px" }}>
               Bot übernehmen
             </Button>
@@ -810,10 +826,12 @@ export default function OnlineLobby({ onBack }) {
   async function takeOverBotSeat(seat = null) {
     if (!room) return;
     setError("");
+    const saved = loadReconnect();
     const res = await emitAck("takeOverBotSeat", {
       roomCode: room.roomCode,
       seat,
       name,
+      reconnectToken: saved?.roomCode === room.roomCode ? saved.reconnectToken : null,
     });
     if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
     if (!res?.ok) setError(res?.message || "Bot konnte nicht übernommen werden.");
@@ -916,7 +934,7 @@ export default function OnlineLobby({ onBack }) {
           game ? (
             <OnlineGame room={room} game={game} setError={setError} onTakeOverBot={takeOverBotSeat} />
           ) : (
-            <JoinInProgressScreen room={room} onTakeOverBot={takeOverBotSeat} onSpectate={spectateRoom} />
+            <JoinInProgressScreen room={room} playerName={name} onTakeOverBot={takeOverBotSeat} onSpectate={spectateRoom} />
           )
         ) : !room ? (
           <div style={{ marginTop: 22, display: "grid", gap: 18 }}>

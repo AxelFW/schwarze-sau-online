@@ -268,8 +268,7 @@ function scheduleAdvance(roomCode, immediate = false, delayOverrideMs = null) {
 
   const configuredDelay = Number(BOT_DELAY_MS);
   const normalDelay = Number.isFinite(configuredDelay) ? Math.max(0, configuredDelay) : 650;
-  const hasDelayOverride = delayOverrideMs !== null && delayOverrideMs !== undefined && delayOverrideMs !== "";
-  const explicitDelay = hasDelayOverride ? Number(delayOverrideMs) : NaN;
+  const explicitDelay = Number(delayOverrideMs);
   const delay = Number.isFinite(explicitDelay)
     ? Math.max(0, explicitDelay)
     : (immediate ? 0 : normalDelay);
