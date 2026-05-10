@@ -6,7 +6,7 @@ import {
   clearFinishedTrick,
   getValidCards,
 } from "../shared/game/engine.js";
-import { heuristicQuetschPick, chooseHeuristicCard, recommendHeuristicCards } from "../shared/game/heuristicBot.js";
+import { heuristicQuetschPick, chooseHeuristicCard } from "../shared/game/heuristicBot.js";
 import { sameCard, sortHand, cardPts } from "../shared/game/cards.js";
 
 const rooms = new Map();
@@ -120,7 +120,6 @@ function defaultRoomSettings(settings = {}) {
   return {
     matchRutschen: normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
     showPenaltyTracker: settings.showPenaltyTracker !== false,
-    easyMode: settings.easyMode === true,
   };
 }
 
@@ -623,14 +622,13 @@ export function setSeatOpen({ roomCode, socketId, seat }) {
   return publicRoom(room);
 }
 
-export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker, easyMode }) {
+export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker }) {
   const room = requireRoom(roomCode);
   assertLobby(room);
   requireHost(room, socketId);
   const next = defaultRoomSettings(room.settings);
   if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
   if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
-  if (easyMode !== undefined) next.easyMode = easyMode === true;
   room.settings = next;
   log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
   return publicRoom(room);
@@ -722,18 +720,6 @@ export function getPrivateGameView(room, socketId) {
     ? []
     : sortHand((gs.hands[seatIndex] || []).filter((card) => !ownQuetschSelection.some((q) => sameCard(q, card))));
   const validCards = seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex ? getValidCards(gs, seatIndex) : [];
-  const settings = defaultRoomSettings(room.settings);
-  let suggestion = null;
-  if (settings.easyMode && seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex && validCards.length) {
-    const rec = recommendHeuristicCards(botDecisionGameState(room), seatIndex);
-    suggestion = {
-      cards: Array.isArray(rec?.cards) ? rec.cards.filter((card) => validCards.some((valid) => sameCard(valid, card))) : [],
-      rule: rec?.rule || "normal_follow",
-      reason: rec?.reason || "Der Bot empfiehlt diese Karte nach seiner normalen Sicherheits- und Stichlogik.",
-      reasonByCard: rec?.reasonByCard || {},
-    };
-    if (!suggestion.cards.length) suggestion = null;
-  }
   const pendingQuetschSeats = game.phase === "quetsch" ? pendingHumanQuetschSeats(room) : [];
   const quetschSubmitted = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex]);
   const quetschReceived = visibleQuetschReceivedForSeat(game, seatIndex);
@@ -743,10 +729,8 @@ export function getPrivateGameView(room, socketId) {
     yourSeat: seatIndex,
     round: game.round,
     maxRounds: game.maxRounds,
-    matchRutschen: game.matchRutschen ?? settings.matchRutschen,
-    showPenaltyTracker: settings.showPenaltyTracker,
-    easyMode: settings.easyMode,
-    suggestion,
+    matchRutschen: game.matchRutschen ?? defaultRoomSettings(room.settings).matchRutschen,
+    showPenaltyTracker: defaultRoomSettings(room.settings).showPenaltyTracker,
     names,
     seatTypes,
     dealer: gs.dealer,

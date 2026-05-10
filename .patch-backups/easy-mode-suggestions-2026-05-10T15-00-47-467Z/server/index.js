@@ -463,7 +463,6 @@ io.on("connection", (socket) => {
         socketId: socket.id,
         matchRutschen: payload.matchRutschen,
         showPenaltyTracker: payload.showPenaltyTracker,
-        easyMode: payload.easyMode,
       });
       io.to(room.roomCode).emit("roomUpdated", room);
       acknowledge(ack, { ok: true, room });

@@ -105,7 +105,7 @@ function TextInput(props) {
   );
 }
 
-function CardFace({ card, highlighted, dimmed, selected, suggested, onClick, size = "md" }) {
+function CardFace({ card, highlighted, dimmed, selected, onClick, size = "md" }) {
   const w = size === "sm" ? 42 : 58;
   const h = size === "sm" ? 59 : 81;
   const fs = size === "sm" ? 11 : 13;
@@ -125,8 +125,6 @@ function CardFace({ card, highlighted, dimmed, selected, suggested, onClick, siz
         borderRadius: 6,
         border: selected
           ? "2.5px solid #f4c430"
-          : suggested
-          ? "2.5px solid #60a5fa"
           : highlighted
           ? "2px solid rgba(244,196,48,0.55)"
           : isSau
@@ -134,8 +132,6 @@ function CardFace({ card, highlighted, dimmed, selected, suggested, onClick, siz
           : "1px solid #ccc",
         boxShadow: selected
           ? "0 0 14px rgba(244,196,48,0.8),1px 3px 6px rgba(0,0,0,0.3)"
-          : suggested
-          ? "0 0 16px rgba(96,165,250,0.85),1px 3px 6px rgba(0,0,0,0.3)"
           : "1px 2px 5px rgba(0,0,0,0.3)",
         cursor: onClick ? "pointer" : "default",
         opacity: dimmed ? 0.3 : 1,
@@ -148,7 +144,7 @@ function CardFace({ card, highlighted, dimmed, selected, suggested, onClick, siz
         fontWeight: "bold",
         fontFamily: "Georgia,serif",
         transition: "transform 0.12s",
-        transform: selected ? "translateY(-12px) scale(1.05)" : suggested && onClick ? "translateY(-8px) scale(1.03)" : highlighted && onClick ? "translateY(-5px)" : "none",
+        transform: selected ? "translateY(-12px) scale(1.05)" : highlighted && onClick ? "translateY(-5px)" : "none",
         userSelect: "none",
         flexShrink: 0,
         position: "relative",
@@ -181,11 +177,7 @@ function emitAck(event, payload) {
 }
 
 function cardId(card) {
-  return String(card.s) + String(card.v);
-}
-
-function cardLabel(card) {
-  return VN(card.v) + SYM[card.s];
+  return `${card.s}${card.v}`;
 }
 
 const RECONNECT_KEY = "wuzzReconnect";
@@ -400,41 +392,6 @@ function JoinInProgressScreen({ room, playerName, onTakeOverBot, onSpectate }) {
   );
 }
 
-function SuggestionPanel({ game }) {
-  const [open, setOpen] = useState(false);
-  const suggestion = game?.suggestion;
-  const cards = Array.isArray(suggestion?.cards) ? suggestion.cards : [];
-  if (!game?.easyMode || game.phase !== "play" || game.currentPlayer !== game.yourSeat || !cards.length) return null;
-
-  return (
-    <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.38)", color: "rgba(255,255,255,0.86)" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div>
-          <strong style={{ color: "#bfdbfe" }}>Bot-Tipp:</strong>{" "}
-          {cards.map(cardLabel).join(" oder ")}
-        </div>
-        <button
-          type="button"
-          onClick={() => setOpen((x) => !x)}
-          title="Tipp erklären"
-          style={{ width: 28, height: 28, borderRadius: "50%", border: "1px solid rgba(191,219,254,0.75)", background: "rgba(255,255,255,0.08)", color: "#bfdbfe", fontWeight: "bold", cursor: "pointer", fontFamily: "Georgia,serif" }}
-        >
-          ?
-        </button>
-      </div>
-      {open && (
-        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.45, color: "rgba(255,255,255,0.72)" }}>
-          {cards.map((card) => (
-            <div key={cardId(card)}>
-              <strong>{cardLabel(card)}:</strong> {suggestion.reasonByCard?.[cardId(card)] || suggestion.reason}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function OnlineGame({ room, game, setError, onTakeOverBot }) {
   const [selected, setSelected] = useState([]);
 
@@ -444,7 +401,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
 
   const selectedHas = (card) => selected.some((c) => sameCard(c, card));
   const validHas = (card) => game.validCards.some((c) => sameCard(c, card));
-  const suggestedHas = (card) => Array.isArray(game.suggestion?.cards) && game.suggestion.cards.some((c) => sameCard(c, card));
 
   function toggleQuetsch(card) {
     setSelected((prev) => {
@@ -553,7 +509,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
       <ScoreStrip game={game} />
       {game.showPenaltyTracker && <NegativeCardsBar game={game} />}
       <LastTrickBanner game={game} />
-      <SuggestionPanel game={game} />
 
       {game.lastRound && (
         <div style={{ marginTop: 12, color: "rgba(255,255,255,0.6)", textAlign: "center", fontSize: 13 }}>
@@ -723,7 +678,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                     key={cardId(card)}
                     card={card}
                     highlighted={canPlay}
-                    suggested={!isTrickPause && game.currentPlayer === game.yourSeat && suggestedHas(card)}
                     dimmed={!isTrickPause && game.currentPlayer === game.yourSeat && !validHas(card)}
                     onClick={canPlay ? () => playCard(card) : null}
                   />
@@ -743,7 +697,6 @@ export default function OnlineLobby({ onBack }) {
   const [name, setName] = useState(localStorage.getItem("wuzzName") || randomFirstName());
   const [preferredMatchRutschen, setPreferredMatchRutschen] = useState(2);
   const [preferredShowPenaltyTracker, setPreferredShowPenaltyTracker] = useState(true);
-  const [preferredEasyMode, setPreferredEasyMode] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [room, setRoom] = useState(null);
   const [game, setGame] = useState(null);
@@ -835,7 +788,7 @@ export default function OnlineLobby({ onBack }) {
 
   async function createRoom() {
     setError("");
-    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode } });
+    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker } });
     if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
     if (!res?.ok) setError(res?.message || "Tisch konnte nicht erstellt werden.");
   }
@@ -897,11 +850,9 @@ export default function OnlineLobby({ onBack }) {
     const merged = {
       matchRutschen: nextSettings.matchRutschen ?? preferredMatchRutschen,
       showPenaltyTracker: nextSettings.showPenaltyTracker ?? preferredShowPenaltyTracker,
-      easyMode: nextSettings.easyMode ?? preferredEasyMode,
     };
     setPreferredMatchRutschen(merged.matchRutschen);
     setPreferredShowPenaltyTracker(merged.showPenaltyTracker);
-    setPreferredEasyMode(merged.easyMode);
     if (!room) return;
     const res = await emitAck("setRoomSettings", { roomCode: room.roomCode, ...merged });
     if (!res?.ok) setError(res?.message || "Einstellungen konnten nicht geändert werden.");
@@ -918,7 +869,7 @@ export default function OnlineLobby({ onBack }) {
 
   async function startSoloGame() {
     setError("");
-    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode } });
+    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker } });
     if (!created?.ok) {
       setError(created?.message || "Solo-Spiel konnte nicht erstellt werden.");
       return;
@@ -1002,10 +953,6 @@ export default function OnlineLobby({ onBack }) {
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
               </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                <input type="checkbox" checked={room?.settings?.easyMode ?? preferredEasyMode} onChange={(e) => { setPreferredEasyMode(e.target.checked); if (room) updateRoomSettings({ easyMode: e.target.checked }); }} />
-                Einfacher Modus: Bot-Tipps anzeigen
-              </label>
             </div>
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -1084,10 +1031,6 @@ export default function OnlineLobby({ onBack }) {
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                <input type="checkbox" checked={room?.settings?.easyMode ?? preferredEasyMode} onChange={(e) => { setPreferredEasyMode(e.target.checked); if (room) updateRoomSettings({ easyMode: e.target.checked }); }} />
-                Einfacher Modus: Bot-Tipps anzeigen
               </label>
             </div>
                 </div>

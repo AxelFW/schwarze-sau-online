@@ -850,123 +850,14 @@ const midgameLeadCandidates = (cards, gs, player) => {
 
   return smallestCards(cards);
 };
-const uniqueCardsByKey = cards => {
-  const seen = new Set();
-  const out = [];
-  for(const c of cards || []) {
-    if(!c) continue;
-    const key = cardKey(c);
-    if(seen.has(key)) continue;
-    seen.add(key);
-    out.push(c);
-  }
-  return out;
-};
-
-const botSuggestionReason = (rule, detail = '') => {
-  const suffix = detail ? ' ' + detail : '';
-  switch(rule) {
-    case 'void_dump':
-      return 'Du kannst die angespielte Farbe nicht bedienen; der Bot nutzt das zum Abwerfen einer gefährlichen oder strategisch passenden Karte.' + suffix;
-    case 'heart_follow_control':
-      return 'Bei Herz versucht der Bot möglichst unter dem aktuellen Stich zu bleiben; falls das nicht geht, hält er den Schaden klein.' + suffix;
-    case 'spade_cashout':
-      return 'Die ♠Q ist hier ein Cashout: außen sind nur noch hohe Pik, daher muss jemand sie übernehmen.' + suffix;
-    case 'spade_safety_lead':
-      return 'Der Bot vermeidet einen gefährlichen Pik-Anspieler, solange die ♠Q noch problematisch ist.' + suffix;
-    case 'harvest_lead':
-      return 'Der Bot sieht nur noch wenig Strafkarten-Risiko und versucht einen positiven Stich zu gewinnen.' + suffix;
-    case 'risky_heart_lead':
-      return 'Der Bot meidet riskante Herz-Anspiele und nimmt die sicherere verbliebene Alternative.' + suffix;
-    case 'void_risk_lead':
-      return 'Der Bot meidet eine Farbe, in der ein Mitspieler vermutlich abwerfen kann, falls die Karte den Stich gewinnt.' + suffix;
-    case 'negative_history_lead':
-      return 'Der Bot meidet Farben, die schon negative Stiche erzeugt haben, außer die Karte ist ein sicherer Ausstieg.' + suffix;
-    case 'void_creation_lead':
-      return 'Unter Gefahr versucht der Bot eine kurze Farbe leerzuspielen, um später besser abwerfen zu können.' + suffix;
-    case 'safe_ace_lead':
-      return 'Der Bot spielt ein sicheres ♣/♦-Ass, weil es meist einen positiven Stich einsammelt.' + suffix;
-    case 'midgame_lead':
-      return 'Im Mittelspiel bevorzugt der Bot kleine, noch übernehmbare Karten aus einer sicheren Farbe.' + suffix;
-    case 'positive_follow_take':
-      return 'Der Bot übernimmt hier einen voraussichtlich positiven Stich.' + suffix;
-    case 'positive_follow_duck':
-      return 'Der Bot bleibt hier lieber unter dem Stich, weil spätere Spieler den Stich noch übernehmen könnten.' + suffix;
-    case 'avoid_bad_follow_win':
-      return 'Der Bot vermeidet es, einen aktuell negativen Stich selbst zu gewinnen.' + suffix;
-    case 'midgame_follow':
-      return 'Im Mittelspiel wirft der Bot die höchste Karte ab, die den Stich nicht gewinnt.' + suffix;
-    case 'normal_follow':
-      return 'Der Bot wählt unter den sicheren gültigen Karten nach seiner normalen Stichlogik.' + suffix;
-    case 'normal_lead':
-    default:
-      return 'Der Bot empfiehlt diese Karte nach seiner normalen Sicherheits- und Stichlogik.' + suffix;
-  }
-};
-
-const suggestionDecision = (cards, rule, detail = '') => {
-  const cleanCards = uniqueCardsByKey(cards);
-  const reason = botSuggestionReason(rule, detail);
-  return {
-    cards: cleanCards,
-    rule,
-    reason,
-    reasonByCard: Object.fromEntries(cleanCards.map(c => [cardKey(c), reason])),
-  };
-};
-
-const voidDumpRecommendationCandidates = (valid, gs, player) => {
-  const emergencyDumps = criticalVoidDumpCandidates(valid, gs, player);
-  if(emergencyDumps.length) return [emergencyDumps[0]];
-
-  const strategicDump = strategicVoidDump(valid, gs, player);
-  if(strategicDump) return [strategicDump];
-
-  const highNegatives = valid.filter(isHighNegativeForDump);
-  if(highNegatives.length) return [sortByNegativityDesc(highNegatives)[0]];
-
-  if(queenSpadesStillOutNotInHand(gs, player) && spadesLowerThanQueenInHand(gs, player) < 2) {
-    const highSpades = valid.filter(c => c.s === 'S' && (c.v === 13 || c.v === 14));
-    if(highSpades.length) return largestCards(highSpades);
-  }
-
-  const midMinor = valid.filter(c => (c.s === 'D' || c.s === 'C') && c.v >= 5 && c.v <= 11);
-  if(midMinor.length) {
-    const minRemaining = Math.min(...midMinor.map(c => remainingPublicSuitCount(gs, player, c.s)));
-    const shortestSuitCards = midMinor.filter(c => remainingPublicSuitCount(gs, player, c.s) === minRemaining);
-    return largestCards(shortestSuitCards);
-  }
-
-  const smallHearts = valid.filter(c => c.s === 'H' && c.v <= 5);
-  if(smallHearts.length) return largestCards(smallHearts);
-
-  const lowSpades = valid.filter(c => c.s === 'S' && c.v < 12);
-  if(lowSpades.length) return largestCards(lowSpades);
-
-  return [sortByNegativityDesc(valid)[0]];
-};
-
-const heartFollowControlCandidates = (cards, gs) => {
-  const losing = highestLosingCards(cards, gs);
-  return losing.length ? losing : smallestCards(cards);
-};
-
-const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
+export const chooseHeuristicCard = (gs, player) => {
   const hand = gs.hands[player];
   const valid = getValidIdxs(hand, gs.leadSuit).map(i => hand[i]);
   const isLeading = !gs.leadSuit || gs.trick.length === 0;
-  const finish = (cards, rule, detail = '') => {
-    const clean = uniqueCardsByKey(cards);
-    if(stochastic) return suggestionDecision([randomFrom(clean)], rule, detail);
-    return suggestionDecision(clean, rule, detail);
-  };
-
-  if(!valid.length) return suggestionDecision([], 'normal_follow');
 
   // H1: Void dump — when unable to follow suit, dump worst penalty first.
   if(gs.leadSuit && !hand.some(c => c.s === gs.leadSuit)) {
-    const cards = stochastic ? [voidDump(valid, gs, player)] : voidDumpRecommendationCandidates(valid, gs, player);
-    return finish(cards, 'void_dump');
+    return voidDump(valid, gs, player);
   }
 
   // H2: Heart-follow-control.
@@ -974,8 +865,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   // likely to remain winning.
   if(!isLeading && gs.leadSuit === 'H') {
     const harvestFollow = harvestFollowWinners(valid, gs, player);
-    if(harvestFollow.length) return finish(harvestFollow, 'positive_follow_take');
-    return finish(heartFollowControlCandidates(valid, gs), 'heart_follow_control');
+    if(harvestFollow.length) return randomFrom(harvestFollow);
+    return heartFollowControl(valid, gs);
   }
 
   if(isLeading) {
@@ -985,7 +876,7 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     // H0L: ♠Q cashout. This rare tactic has priority over every normal lead
     // heuristic: if all outside spades are ♠K/♠A, ♠Q is guaranteed to be beaten.
     const queenCashout = queenSpadeCashoutLeadCandidates(valid, gs, player);
-    if(queenCashout.length) return finish(queenCashout, 'spade_cashout');
+    if(queenCashout.length) return queenCashout[0];
 
     // H3: Spade-lead safety.
     // - If we hold ♠Q, do not lead any spade while an alternative exists.
@@ -999,8 +890,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
         // H0L did not fire, so leading ♠Q is unsafe. If the hand is all
         // spades, lead the lowest non-queen spade and only play ♠Q if forced.
         const nonQueenSpades = nonQueenSpadeLeadCandidates(candidates);
-        if(nonQueenSpades.length) return finish(nonQueenSpades, 'spade_safety_lead');
-        return finish([candidates.find(c => sameCard(c, QUEEN_SPADES)) ?? valid[0]], 'spade_safety_lead');
+        if(nonQueenSpades.length) return randomFrom(nonQueenSpades);
+        return candidates.find(c => sameCard(c, QUEEN_SPADES)) ?? valid[0];
       }
     } else {
       const noSpadeAboveQueen = candidates.filter(c => !(c.s === 'S' && c.v > 12));
@@ -1028,9 +919,12 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     // voids and prefer high-probability winners of positive tricks.
     // This runs after ♠Q safety, so it cannot accidentally expose ♠Q.
     const harvestLeads = harvestWinningLeads(candidates, gs, player);
-    if(harvestLeads.length) return finish(harvestLeads, 'harvest_lead');
+    if(harvestLeads.length) return randomFrom(harvestLeads);
 
-    // H5: Avoid risky heart leads.
+    // H5: Avoid risky heart leads.  Risk now combines duck-under mass,
+    // voluntary high-heart exposure, and burning the last low/mid protector
+    // for ♥J–♥A.  If the heart filter empties all non-spade options, use a
+    // protected low spade only when ♠Q still keeps a guard afterward.
     const hearts = candidates.filter(c => c.s === 'H');
     if(hearts.length) {
       const riskyHearts = hearts.filter(c => heartLeadRisk(c, gs, player));
@@ -1039,23 +933,25 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
         if(filtered.length) {
           candidates = filtered;
         } else if(protectedSpadeFallback.length) {
-          return finish(protectedSpadeFallback, 'risky_heart_lead');
+          return randomFrom(protectedSpadeFallback);
         } else {
-          return finish(heartLeadPreferenceCandidates(hearts, gs, player), 'risky_heart_lead');
+          return randomFrom(heartLeadPreferenceCandidates(hearts, gs, player));
         }
       } else if(candidates.every(c => c.s === 'H')) {
         candidates = heartLeadPreferenceCandidates(hearts, gs, player);
       }
     }
 
-    // H_V1: Known-void suits are only dangerous when the card is likely to win.
+    // H_V1: Known-void suits are only dangerous when the card is likely to
+    // win. If every same-suit card outside is higher, the lead is a safe exit:
+    // someone else must take the trick even if a void player dumps penalties.
     const riskyVoidLeads = candidates.filter(c => voidRiskyWinningLead(c, gs, player));
     if(riskyVoidLeads.length) {
       const safeFromVoid = candidates.filter(c => !riskyVoidLeads.some(r => sameCard(r, c)));
       if(safeFromVoid.length) {
         candidates = safeFromVoid;
       } else if(protectedSpadeFallback.length) {
-        return finish(protectedSpadeFallback, 'void_risk_lead');
+        return randomFrom(protectedSpadeFallback);
       } else {
         candidates = leastBadVoidRiskLeadCandidates(candidates, gs, player);
       }
@@ -1063,30 +959,34 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
 
     // H_NEGHIST: From trick 2 onward, avoid non-heart suits that have already
     // produced a negative trick, unless the candidate is a safe bleed/exit.
+    // Hearts are deliberately excluded because heart tricks are usually
+    // negative and are handled by H5.
     if(gs.tricksPlayed >= 1) {
       const filteredByHistory = negativeHistoryNonHeartLeadCandidates(candidates, gs, player);
       if(filteredByHistory.length) {
         candidates = filteredByHistory;
       } else if(protectedSpadeFallback.length) {
-        return finish(protectedSpadeFallback, 'negative_history_lead');
+        return randomFrom(protectedSpadeFallback);
       }
     }
 
-    // H6b: Under serious danger, prefer creating a short-suit void.
+    // H6b: Under serious danger, prefer creating a short-suit void
+    // before taking otherwise-safe ♣A/♦A openers.  This is a soft preference:
+    // if it finds no option, keep the current safety-filtered candidates.
     const voidCreationLeads = voidCreationLeadCandidates(candidates, gs, player);
-    if(voidCreationLeads.length) return finish(voidCreationLeads, 'void_creation_lead');
+    if(voidCreationLeads.length) candidates = voidCreationLeads;
 
-    // H7: Prefer safe ♣A / ♦A openers after risk filters.
+    // H7: Prefer safe ♣A / ♦A openers after risk filters and
+    // the serious-danger void-creation preference.
     const safeAces = candidates.filter(c => (c.s === 'C' || c.s === 'D') && c.v === 14);
-    if(safeAces.length) return finish(safeAces, 'safe_ace_lead');
+    if(safeAces.length) return randomFrom(safeAces);
 
     // H10 + H11: Midgame small-card, safe-suit preference.
     if(gs.tricksPlayed >= 4 && gs.tricksPlayed <= 10) {
       candidates = midgameLeadCandidates(candidates, gs, player);
-      return finish(candidates, 'midgame_lead');
     }
 
-    return finish(candidates, 'normal_lead');
+    return randomFrom(candidates);
   }
 
   // Following heuristics.
@@ -1103,25 +1003,24 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   }
 
   // New H9a: fourth position — always take truly positive tricks.
+  // King is allowed here if Ace is still unseen: no player can overtake after us.
   if(spadesAreNormal && gs.trick.length === 3) {
     const positiveWinners = positiveFollowWinners(candidates, gs);
     if(positiveWinners.length) {
-      return finish(largestCards(positiveWinners), 'positive_follow_take');
+      return randomFrom(largestCards(positiveWinners));
     }
   }
 
-  // H8 revised: avoid wasting King under Ace pressure.
+  // H8 revised: avoid wasting King under Ace pressure. This affects 2nd/3rd
+  // position positive-take logic and the largest-non-winning fallback, but it
+  // never makes the candidate set empty.
   candidates = avoidKingUnderAcePressure(candidates, gs, player);
 
   // H6 follow-side: avoid currently winning net-negative tricks.
-  const beforeRiskAvoidance = candidates;
   candidates = avoidRiskyFollowWinners(candidates, gs, player);
-  const avoidedRiskyWin = beforeRiskAvoidance.length !== candidates.length || (
-    beforeRiskAvoidance.length === candidates.length &&
-    beforeRiskAvoidance.some((c, i) => !sameCard(c, candidates[i]))
-  );
 
   // New H9b: third position — probabilistically overtake positive tricks.
+  // Probability is the estimated chance that the fourth player is not void.
   if(spadesAreNormal && gs.trick.length === 2) {
     const positiveWinners = positiveFollowWinners(candidates, gs);
     const losing = highestLosingCards(candidates, gs);
@@ -1129,19 +1028,13 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     if(positiveWinners.length && losing.length) {
       const fourthPlayer = (player + 1) % 4;
       const pTake = followSuitNonVoidProbability(gs, player, fourthPlayer, gs.leadSuit);
-      const detail = '(geschätzt: ' + (100 * pTake).toFixed(0) + '% Chance, dass der nächste Spieler bedienen kann).';
-      if(stochastic) {
-        return Math.random() < pTake
-          ? finish(largestCards(positiveWinners), 'positive_follow_take', detail)
-          : finish(losing, 'positive_follow_duck', detail);
-      }
-      return pTake >= 0.5
-        ? finish(largestCards(positiveWinners), 'positive_follow_take', detail)
-        : finish(losing, 'positive_follow_duck', detail);
+      return Math.random() < pTake
+        ? randomFrom(largestCards(positiveWinners))
+        : randomFrom(losing);
     }
 
     if(positiveWinners.length) {
-      return finish(largestCards(positiveWinners), 'positive_follow_take');
+      return randomFrom(largestCards(positiveWinners));
     }
   }
 
@@ -1157,37 +1050,25 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
       const pTake =
         followSuitNonVoidProbability(gs, player, thirdPlayer, gs.leadSuit) *
         followSuitNonVoidProbability(gs, player, fourthPlayer, gs.leadSuit);
-      const detail = '(geschätzt: ' + (100 * pTake).toFixed(0) + '% Chance, dass beide späteren Spieler bedienen können).';
-      if(stochastic) {
-        return Math.random() < pTake
-          ? finish(largestCards(positiveWinners), 'positive_follow_take', detail)
-          : finish(losing, 'positive_follow_duck', detail);
-      }
-      return pTake >= 0.5
-        ? finish(largestCards(positiveWinners), 'positive_follow_take', detail)
-        : finish(losing, 'positive_follow_duck', detail);
+      return Math.random() < pTake
+        ? randomFrom(largestCards(positiveWinners))
+        : randomFrom(losing);
     }
 
     if(positiveWinners.length) {
-      return finish(largestCards(positiveWinners), 'positive_follow_take');
+      return randomFrom(largestCards(positiveWinners));
     }
   }
 
-  // H10 revised: Midgame follow — shed the largest non-winning card.
+  // H10 revised: Midgame follow — shed the largest non-winning card rather
+  // than the smallest valid card. If every candidate wins, fall back to the
+  // smallest candidate.
   if(gs.tricksPlayed >= 4 && gs.tricksPlayed <= 10) {
     const losing = highestLosingCards(candidates, gs);
     candidates = losing.length ? losing : smallestCards(candidates);
-    return finish(candidates, 'midgame_follow');
   }
 
-  return finish(candidates, avoidedRiskyWin ? 'avoid_bad_follow_win' : 'normal_follow');
-};
-
-export const recommendHeuristicCards = (gs, player) => heuristicDecision(gs, player, { stochastic: false });
-
-export const chooseHeuristicCard = (gs, player) => {
-  const decision = heuristicDecision(gs, player, { stochastic: true });
-  return decision.cards[0];
+  return randomFrom(candidates);
 };
 
 
