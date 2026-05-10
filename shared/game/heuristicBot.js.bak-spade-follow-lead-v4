@@ -431,27 +431,6 @@ const voidCreationLeadCandidates = (cards, gs, player) => {
   return smallestCards(shortestSuitCards);
 };
 
-const queenSpadesLiveOutside = (gs, player) =>
-  !queenSpadesInHand(gs, player) && !queenSpadesPlayed(gs) && !queenSpadesInTrick(gs);
-
-const preserveLastLowSpadeShieldLead = (cards, gs, player) => {
-  // Lead-only candidate filter: if ♠Q is still outside and we hold ♠K/♠A, keep
-  // one low spade shield (<♠Q) when possible.  Do not make the bot unable to
-  // lead; if all candidates burn the shield, keep the original candidates.
-  if(!cards.length || !queenSpadesLiveOutside(gs, player)) return cards;
-
-  const hand = gs.hands[player] || [];
-  const holdsHighSpade = hand.some(c => c.s === 'S' && (c.v === 13 || c.v === 14));
-  if(!holdsHighSpade) return cards;
-
-  const lowSpadesInHand = hand.filter(c => c.s === 'S' && c.v < 12);
-  if(lowSpadesInHand.length !== 1) return cards;
-
-  const shield = lowSpadesInHand[0];
-  const filtered = cards.filter(c => !sameCard(c, shield));
-  return filtered.length ? filtered : cards;
-};
-
 const leftAlreadyPlayedThisTrick = (gs, player) => gs.trick.some(x => x.player === ((player + 1) % 4));
 
 const remainingPenaltiesOutside = (gs, player) => {
@@ -751,31 +730,11 @@ const followSuitNonVoidProbability = (gs, player, targetPlayer, suit) => {
   return clamp01(1 - pVoid);
 };
 
-const positiveFollowWinners = (cards, gs, player) => {
-  let winners = cards.filter(c =>
+const positiveFollowWinners = (cards, gs) =>
+  cards.filter(c =>
     beatsCurrentTrick(c, gs) &&
     trickNetValue(gs) + cardPts(c) > 0
   );
-
-  if(gs.leadSuit !== 'S') return winners;
-
-  // If ♠Q is already in the current trick, do not apply normal positive-take
-  // logic; the dedicated spade-follow safety should decide instead.
-  if(queenSpadesInTrick(gs)) return [];
-
-  // Once ♠Q is completed/out, spades are a normal suit again.
-  if(queenSpadesPlayed(gs)) return winners;
-
-  // Last to act: nobody can still dump ♠Q on our ♠K/♠A, so taking a positive
-  // spade trick is a safe way to spend high spades.
-  if(gs.trick.length === 3) return winners;
-
-  // Earlier positions while ♠Q is live: if we hold ♠Q, nobody else can dump it
-  // on us, so high spades may be used.  Otherwise, voluntary overtake cards are
-  // capped at ♠J to avoid inviting ♠Q onto ♠K/♠A.
-  if(queenSpadesInHand(gs, player)) return winners;
-  return winners.filter(c => c.s !== 'S' || c.v <= 11);
-};
 
 const avoidKingUnderAcePressure = (cards, gs, player) => {
   if(!gs.leadSuit || !gs.trick.length) return cards;
@@ -884,30 +843,12 @@ const negativeHistoryNonHeartLeadCandidates = (cards, gs, player) => {
 const midgameLeadCandidates = (cards, gs, player) => {
   if(!cards.length) return [];
 
-  // First keep only leads that can still be overtaken from outside.  This
-  // prevents the short-suit idea from selecting a dead suit that nobody else
-  // can take, which can load the bot with dumped penalty cards.
+  // Full cautious midgame is now only the general small/beatable preference.
+  // Negative suit history is handled separately from trick 2 onward.
   const beatable = cards.filter(c => hasHigherUnplayedOutsideOwnHand(c, gs, player));
-  const pool = beatable.length ? beatable : cards;
+  if(beatable.length) cards = beatable;
 
-  // Under serious danger, void creation is now only a midgame tie-breaker after
-  // the beatable filter and after safe ♣/♦ ace openers.  Prefer the suit closest
-  // to emptying, but do not use this preference if nothing is beatable.
-  if(seriousDangerOnHand(gs, player) && beatable.length) {
-    let eligible = pool;
-    if(heartDangerOnHand(gs, player)) {
-      const nonHearts = eligible.filter(c => c.s !== 'H');
-      if(nonHearts.length) eligible = nonHearts;
-    }
-
-    if(eligible.length) {
-      const minCount = Math.min(...eligible.map(c => handSuitCount(gs, player, c.s)));
-      const shortestSuitCards = eligible.filter(c => handSuitCount(gs, player, c.s) === minCount);
-      return smallestCards(shortestSuitCards);
-    }
-  }
-
-  return smallestCards(pool);
+  return smallestCards(cards);
 };
 const uniqueCardsByKey = cards => {
   const seen = new Set();
@@ -932,7 +873,7 @@ const botSuggestionReason = (rule, detail = '') => {
     case 'spade_cashout':
       return 'Die ♠Q ist hier ein Cashout: außen sind nur noch hohe Pik, daher muss jemand sie übernehmen.' + suffix;
     case 'spade_safety_lead':
-      return 'Der Bot vermeidet gefährliche Pik-Anspiele und behält mit ♠K/♠A möglichst eine kleine Pik-Schutzkarte.' + suffix;
+      return 'Der Bot vermeidet einen gefährlichen Pik-Anspieler, solange die ♠Q noch problematisch ist.' + suffix;
     case 'harvest_lead':
       return 'Der Bot sieht nur noch wenig Strafkarten-Risiko und versucht einen positiven Stich zu gewinnen.' + suffix;
     case 'risky_heart_lead':
@@ -942,15 +883,15 @@ const botSuggestionReason = (rule, detail = '') => {
     case 'negative_history_lead':
       return 'Der Bot meidet Farben, die schon negative Stiche erzeugt haben, außer die Karte ist ein sicherer Ausstieg.' + suffix;
     case 'void_creation_lead':
-      return 'Unter Gefahr bevorzugt der Bot im Mittelspiel eine kurze, noch übernehmbare Farbe, um später besser abwerfen zu können.' + suffix;
+      return 'Unter Gefahr versucht der Bot eine kurze Farbe leerzuspielen, um später besser abwerfen zu können.' + suffix;
     case 'safe_ace_lead':
       return 'Der Bot spielt ein sicheres ♣/♦-Ass, weil es meist einen positiven Stich einsammelt.' + suffix;
     case 'midgame_lead':
-      return 'Im Mittelspiel bevorzugt der Bot zuerst noch übernehmbare Karten; unter Gefahr nimmt er danach eher eine kurze Farbe.' + suffix;
+      return 'Im Mittelspiel bevorzugt der Bot kleine, noch übernehmbare Karten aus einer sicheren Farbe.' + suffix;
     case 'positive_follow_take':
-      return 'Der Bot übernimmt hier einen voraussichtlich positiven Stich; bei Pik bleibt die ♠Q-Sicherheit berücksichtigt.' + suffix;
+      return 'Der Bot übernimmt hier einen voraussichtlich positiven Stich.' + suffix;
     case 'positive_follow_duck':
-      return 'Der Bot bleibt hier lieber unter dem Stich, weil spätere Spieler noch übernehmen oder abwerfen könnten.' + suffix;
+      return 'Der Bot bleibt hier lieber unter dem Stich, weil spätere Spieler den Stich noch übernehmen könnten.' + suffix;
     case 'avoid_bad_follow_win':
       return 'Der Bot vermeidet es, einen aktuell negativen Stich selbst zu gewinnen.' + suffix;
     case 'midgame_follow':
@@ -1066,10 +1007,6 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
       if(noSpadeAboveQueen.length) candidates = noSpadeAboveQueen;
     }
 
-    // H3b: If ♠Q is still outside and we hold ♠K/♠A, avoid spending the last
-    // low spade shield on lead when another candidate exists.
-    candidates = preserveLastLowSpadeShieldLead(candidates, gs, player);
-
     // H_Q1: If we passed ♠Q left, allow safe LOW spades to pressure that seat.
     // The no-high-spade-lead rule still applies: never re-add ♠K/♠A here.
     if(queenSpadesPassedLeft(gs, player)) {
@@ -1135,9 +1072,11 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
       }
     }
 
-    // H7: Prefer safe ♣A / ♦A openers after risk filters.  The serious-danger
-    // short-suit idea is now handled inside midgameLeadCandidates, after this
-    // safe-ace opener and only among beatable leads.
+    // H6b: Under serious danger, prefer creating a short-suit void.
+    const voidCreationLeads = voidCreationLeadCandidates(candidates, gs, player);
+    if(voidCreationLeads.length) return finish(voidCreationLeads, 'void_creation_lead');
+
+    // H7: Prefer safe ♣A / ♦A openers after risk filters.
     const safeAces = candidates.filter(c => (c.s === 'C' || c.s === 'D') && c.v === 14);
     if(safeAces.length) return finish(safeAces, 'safe_ace_lead');
 
@@ -1154,21 +1093,18 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   let candidates = [...valid];
 
   // Hearts deliberately keep the old dedicated heart-follow branch above.
-  // Spades use dedicated safety while ♠Q is live, but the positive-follow rules
-  // below are still allowed in an adjusted form: 4th position may spend ♠K/♠A,
-  // while 2nd/3rd are capped at ♠J unless the bot holds ♠Q.
-  const spadesAreCompleted = gs.leadSuit === 'S' && queenSpadesPlayed(gs);
+  // Spades keep their dedicated safety logic while ♠Q is still live; after
+  // ♠Q is completed/out, spades can be treated as a normal suit.
+  const spadesAreNormal = gs.leadSuit !== 'S' || queenSpadesPlayed(gs);
 
-  // H4: Spade-following intelligence while ♠Q is still live/current.
-  if(gs.leadSuit === 'S' && !spadesAreCompleted) {
+  // H4: Spade-following intelligence while ♠Q is still live.
+  if(gs.leadSuit === 'S' && !spadesAreNormal) {
     candidates = spadeFollowCandidates(candidates, gs, player);
   }
 
-  // New H9a: fourth position — always take truly positive tricks.  For spades,
-  // this also allows safe ♠K/♠A wins while ♠Q is still live, because nobody can
-  // play after the bot.
-  if(gs.trick.length === 3) {
-    const positiveWinners = positiveFollowWinners(candidates, gs, player);
+  // New H9a: fourth position — always take truly positive tricks.
+  if(spadesAreNormal && gs.trick.length === 3) {
+    const positiveWinners = positiveFollowWinners(candidates, gs);
     if(positiveWinners.length) {
       return finish(largestCards(positiveWinners), 'positive_follow_take');
     }
@@ -1186,8 +1122,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   );
 
   // New H9b: third position — probabilistically overtake positive tricks.
-  if(gs.trick.length === 2) {
-    const positiveWinners = positiveFollowWinners(candidates, gs, player);
+  if(spadesAreNormal && gs.trick.length === 2) {
+    const positiveWinners = positiveFollowWinners(candidates, gs);
     const losing = highestLosingCards(candidates, gs);
 
     if(positiveWinners.length && losing.length) {
@@ -1211,8 +1147,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
 
   // New H9c: second position — probabilistically overtake positive tricks,
   // but only as often as both later players are plausibly non-void.
-  if(gs.trick.length === 1) {
-    const positiveWinners = positiveFollowWinners(candidates, gs, player);
+  if(spadesAreNormal && gs.trick.length === 1) {
+    const positiveWinners = positiveFollowWinners(candidates, gs);
     const losing = highestLosingCards(candidates, gs);
 
     if(positiveWinners.length && losing.length) {
