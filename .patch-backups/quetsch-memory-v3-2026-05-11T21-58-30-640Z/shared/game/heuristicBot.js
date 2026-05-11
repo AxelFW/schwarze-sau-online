@@ -10,40 +10,28 @@ export const heuristicQuetschPick = hand => {
   const has = c => hand.some(x => sameCard(x,c));
   const cardsOfSuit = s => [...hand].filter(c=>c.s===s).sort((a,b)=>a.v-b.v);
   const protectedLow = c => ['H','D','C'].includes(c.s) && c.v>=2 && c.v<=4;
-  const sideSuitAce = c => (c.s==='C' || c.s==='D') && c.v===14;
+  const add = (c, allowProtected=false) => {
+    if(selected.length>=3 || !has(c) || selected.some(x=>sameCard(x,c))) return;
+    if(protectedLow(c) && !allowProtected) return;
+    selected.push(c);
+  };
+  const addMany = (cards, allowProtected=false) => {
+    for(const c of cards){ add(c, allowProtected); if(selected.length>=3) break; }
+  };
 
   const spades = cardsOfSuit('S');
-  const otherSpades = spades.filter(c=>!sameCard(c, QUEEN_SPADES));
-  const spadeEmergency = has(QUEEN_SPADES) && otherSpades.length < 2;
-  const highSpadeEmergency = !has(QUEEN_SPADES) &&
-    spades.some(c=>c.v===13 || c.v===14) &&
-    spades.filter(c=>c.v<12).length < 2;
+  if(has(QUEEN_SPADES)) {
+    const otherSpades = spades.filter(c=>!sameCard(c, QUEEN_SPADES));
+    if(otherSpades.length < 2) {
+      add(QUEEN_SPADES);
+      addMany(otherSpades.filter(c=>c.v===13||c.v===14).sort((a,b)=>b.v-a.v));
+    }
+  }
 
   const hearts = cardsOfSuit('H');
   const smallHearts = hearts.filter(c=>c.v<7);
   const highHearts = hearts.filter(c=>c.v>=11).sort((a,b)=>b.v-a.v);
-  const heartEmergency = highHearts.length > 0 && smallHearts.length===0;
-
-  // Side-suit aces are usually safe-trick assets.  Only emergency structures
-  // are allowed to spend A♣/A♦ freely during quetsch.
-  const emergencyMode = spadeEmergency || highSpadeEmergency || heartEmergency;
-
-  const add = (c, allowProtected=false, allowSideAce=false) => {
-    if(selected.length>=3 || !has(c) || selected.some(x=>sameCard(x,c))) return;
-    if(protectedLow(c) && !allowProtected) return;
-    if(sideSuitAce(c) && !allowSideAce && !emergencyMode) return;
-    selected.push(c);
-  };
-  const addMany = (cards, allowProtected=false, allowSideAce=false) => {
-    for(const c of cards){ add(c, allowProtected, allowSideAce); if(selected.length>=3) break; }
-  };
-
-  if(spadeEmergency) {
-    add(QUEEN_SPADES);
-    addMany(otherSpades.filter(c=>c.v===13||c.v===14).sort((a,b)=>b.v-a.v));
-  }
-
-  if(heartEmergency) addMany(highHearts);
+  if(highHearts.length && smallHearts.length===0) addMany(highHearts);
 
   for(const s of ['C','D']) {
     if(selected.length>=3) break;
@@ -60,18 +48,13 @@ export const heuristicQuetschPick = hand => {
   const voidOptions = [];
   for(const s of ['C','D']) {
     const remaining = cardsOfSuit(s).filter(c=>!selected.some(x=>sameCard(x,c)));
-
-    // Do not create a cheap C/D void by passing away A♣/A♦ in normal hands.
-    // The ace is a control card; keep it unless the hand is in emergency mode.
-    if(!emergencyMode && remaining.some(sideSuitAce)) continue;
-
     if(remaining.length && remaining.length <= 3-selected.length && !remaining.some(protectedLow)) {
       const avg = remaining.reduce((a,c)=>a+c.v,0)/remaining.length;
       voidOptions.push({n:remaining.length, avg, cards:remaining});
     }
   }
   voidOptions.sort((a,b)=>a.n-b.n || b.avg-a.avg);
-  if(voidOptions.length) addMany(voidOptions[0].cards.sort((a,b)=>b.v-a.v), false, emergencyMode);
+  if(voidOptions.length) addMany(voidOptions[0].cards.sort((a,b)=>b.v-a.v));
 
   const fallbackScore = c => {
     if(sameCard(c, QUEEN_SPADES)) return 1000;
@@ -81,19 +64,12 @@ export const heuristicQuetschPick = hand => {
     if((c.s==='C'||c.s==='D') && c.v>=11) return 200+c.v;
     return c.v;
   };
-
-  const remainingByFallback = () =>
-    [...hand].filter(c=>!selected.some(x=>sameCard(x,c))).sort((a,b)=>fallbackScore(b)-fallbackScore(a));
-
-  // Normal fallback still preserves low safety cards and side-suit aces.
-  addMany(remainingByFallback().filter(c=>!protectedLow(c)));
-
-  // If needed, spend protected lows before spending a preserved side-suit ace.
-  addMany(remainingByFallback(), true);
-
-  // Absolute last resort: always return exactly three legal cards.
-  addMany(remainingByFallback(), true, true);
-
+  addMany([...hand].filter(c=>!selected.some(x=>sameCard(x,c)) && !protectedLow(c)).sort((a,b)=>fallbackScore(b)-fallbackScore(a)));
+  addMany([...hand].filter(c=>!selected.some(x=>sameCard(x,c))).sort((a,b)=>{
+    const pa = (a.s==='C'||a.s==='D') ? 0 : 1;
+    const pb = (b.s==='C'||b.s==='D') ? 0 : 1;
+    return pa-pb || b.v-a.v;
+  }), true);
   return selected.slice(0,3);
 };
 
@@ -126,11 +102,6 @@ const cardsOfSuit = s => VALS.map(v => ({s, v}));
 const cardIn = (cards, target) => cards.some(c => sameCard(c, target));
 const trickCards = gs => gs.trick.map(x => x.card);
 const completedCards = gs => gs.trickHistory ?? [];
-const livePlayedOrCurrentCardKeys = gs => new Set([...trickCards(gs), ...completedCards(gs)].map(cardKey));
-const liveKnownPassedLeft = (gs, player) => {
-  const used = livePlayedOrCurrentCardKeys(gs);
-  return (gs.quetschPassedLeft?.[player] ?? []).filter(c => !used.has(cardKey(c)));
-};
 const knownCardsFor = (gs, player) => [
   ...gs.hands[player],
   ...trickCards(gs),
@@ -697,40 +668,10 @@ const unseenRankCounts = (card, gs, player) => {
   };
 };
 
-const quetschReceivedFromRightFor = (gs, player) => gs.quetschReceivedFromRight?.[player] ?? [];
-const quetschReceivedCountBySuit = (gs, player, suit) =>
-  quetschReceivedFromRightFor(gs, player).filter(c => c.s === suit).length;
-const sideSuit = suit => suit === 'C' || suit === 'D';
-
-const quetschDangerRelevant = (gs, player) =>
-  !lowNegativePressureMode(gs) && !harvestModeActive(gs, player);
-
-const quetschSuspiciousWinningLead = (card, gs, player) =>
-  sideSuit(card.s) &&
-  quetschReceivedCountBySuit(gs, player, card.s) >= 3 &&
-  quetschDangerRelevant(gs, player) &&
-  highWinProbability(card, gs, player);
-
-const quetschSoftSuspiciousWinningLead = (card, gs, player) =>
-  sideSuit(card.s) &&
-  quetschReceivedCountBySuit(gs, player, card.s) === 2 &&
-  quetschDangerRelevant(gs, player) &&
-  highWinProbability(card, gs, player);
-
-const preferNonQuetschSoftWinningLeads = (cards, gs, player) => {
-  if(!cards.length) return cards;
-  const softRisk = cards.filter(c => quetschSoftSuspiciousWinningLead(c, gs, player));
-  if(!softRisk.length || softRisk.length === cards.length) return cards;
-  return cards.filter(c => !softRisk.some(r => sameCard(r, c)));
-};
-
 const voidRiskyWinningLead = (card, gs, player) =>
-  (
-    !lowNegativePressureMode(gs) &&
-    suitVoidPenaltyRisk(gs, player, card.s) &&
-    highWinProbability(card, gs, player)
-  ) ||
-  quetschSuspiciousWinningLead(card, gs, player);
+  !lowNegativePressureMode(gs) &&
+  suitVoidPenaltyRisk(gs, player, card.s) &&
+  highWinProbability(card, gs, player);
 
 const leastBadVoidRiskLeadCandidates = (cards, gs, player) => {
   if(!cards.length) return [];
@@ -830,11 +771,6 @@ const followSuitNonVoidProbability = (gs, player, targetPlayer, suit) => {
     // A known void is only bad if that player can still dump negative cards.
     return playerCanStillDumpNegative(gs, targetPlayer) ? 0 : 1;
   }
-
-  // Own quetsch pass memory: cards passed left are known to remain in the
-  // left player's hand until played, so left is not void in that suit.
-  const leftPlayer = (player + 1) % 4;
-  if(targetPlayer === leftPlayer && liveKnownPassedLeft(gs, player).some(c => c.s === suit)) return 1;
 
   const unseenSuitCount = unseenCardsOfSuit(gs, player, suit).length;
   if(unseenSuitCount <= 0) return 0;
@@ -1069,7 +1005,7 @@ const botSuggestionReason = (rule, detail = '') => {
     case 'risky_heart_lead':
       return 'Der Bot meidet riskante Herz-Anspiele und nimmt die sicherere verbliebene Alternative.' + suffix;
     case 'void_risk_lead':
-      return 'Der Bot meidet eine Farbe wegen echter Abwurfgefahr oder wegen eines starken Quetsch-Hinweises aus den erhaltenen Karten.' + suffix;
+      return 'Der Bot meidet eine Farbe nur dann wegen Abwurfgefahr, wenn der void Spieler noch wirklich negative Karten abwerfen kann.' + suffix;
     case 'negative_history_lead':
       return 'Der Bot meidet Farben, die schon negative Stiche erzeugt haben, außer die Karte ist ein sicherer Ausstieg.' + suffix;
     case 'void_creation_lead':
@@ -1270,15 +1206,15 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     // short-suit idea is now handled inside midgameLeadCandidates, after this
     // safe-ace opener and only among beatable leads.
     const safeAces = candidates.filter(c => (c.s === 'C' || c.s === 'D') && c.v === 14);
-    if(safeAces.length) return finish(preferNonQuetschSoftWinningLeads(safeAces, gs, player), 'safe_ace_lead');
+    if(safeAces.length) return finish(safeAces, 'safe_ace_lead');
 
     // H10 + H11: Midgame small-card, safe-suit preference.
     if(gs.tricksPlayed >= 4 && gs.tricksPlayed <= 10) {
       candidates = midgameLeadCandidates(candidates, gs, player);
-      return finish(preferNonQuetschSoftWinningLeads(candidates, gs, player), 'midgame_lead');
+      return finish(candidates, 'midgame_lead');
     }
 
-    return finish(preferNonQuetschSoftWinningLeads(candidates, gs, player), 'normal_lead');
+    return finish(candidates, 'normal_lead');
   }
 
   // Following heuristics.

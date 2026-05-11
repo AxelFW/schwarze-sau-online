@@ -20,7 +20,6 @@ export const dealRound = (dealer, rng = Math.random) => {
     negativeTrickSuits: [],
     trickHistory: [],
     quetschPassedLeft: [[], [], [], []],
-    quetschReceivedFromRight: [[], [], [], []],
     knownVoids: [0, 1, 2, 3].map(() => [false, false, false, false]), // C/D/H/S
     spadeBeliefs: {
       probableNoLowSpades: [false, false, false, false],
@@ -139,7 +138,6 @@ export const applyQuetschSelections = (gs, selections) => {
     hands: newHands,
     quetschSelections: [[], [], [], []],
     quetschPassedLeft: selections.map(sel => [...sel]),
-    quetschReceivedFromRight: toAdd.map(sel => [...sel]),
   };
 };
 

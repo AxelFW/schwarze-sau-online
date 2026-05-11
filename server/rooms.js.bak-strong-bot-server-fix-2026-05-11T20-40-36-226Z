@@ -1,0 +1,867 @@
+import crypto from "crypto";
+import {
+  dealRound,
+  applyCard,
+  applyQuetschSelections,
+  clearFinishedTrick,
+  getValidCards,
+} from "../shared/game/engine.js";
+import { heuristicQuetschPick, chooseHeuristicCard, recommendHeuristicCards } from "../shared/game/heuristicBot.js";
+import { sameCard, sortHand, cardPts } from "../shared/game/cards.js";
+
+const rooms = new Map();
+const GAMES_PER_RUNDE = 4;
+const DEFAULT_MATCH_RUNDEN = Number(process.env.DEFAULT_MATCH_RUNDEN || 2);
+const MAX_ROUNDS = GAMES_PER_RUNDE * (DEFAULT_MATCH_RUNDEN === 1 ? 1 : 2);
+const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS || 30 * 60 * 1000);
+const QUETSCH_REVIEW_MS = Number(process.env.QUETSCH_REVIEW_MS || 2600);
+// Delay after the fourth card of a trick is visible before the next trick starts.
+const TRICK_DISPLAY_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRICK_REVIEW_MS || 1400);
+const FINAL_TRICK_DISPLAY_MS = Number(process.env.FINAL_TRICK_DISPLAY_MS || Math.max(TRICK_DISPLAY_MS, 2600));
+const DISCONNECTED_HUMAN_BOT_DELAY_MS = Number(process.env.DISCONNECTED_HUMAN_BOT_DELAY_MS || 20_000);
+
+const envFlagEnabled = (value) =>
+  value === undefined || value === null || String(value).trim().toLowerCase() !== "false";
+
+// This flag controls only whether the Easy Mode checkbox is advertised/shown.
+// Easy Mode itself remains available for hidden URL-based access.
+export const EASY_MODE_FEATURE_ENABLED =
+  envFlagEnabled(process.env.ENABLE_EASY_MODE) &&
+  envFlagEnabled(process.env.VITE_ENABLE_EASY_MODE) &&
+  envFlagEnabled(process.env.VITE_EASY_MODE_ENABLED);
+
+// Wuzz tweak: old German first-name pool for bot seats.
+const BOT_FIRST_NAMES = [
+  "Ferdi",
+  "Leopold",
+  "Wilhelm",
+  "Heinrich",
+  "Albert",
+  "Otto",
+  "Peter",
+  "Thomas",
+  "Sigrun",
+  "Ludwig",
+  "Adelheid",
+  "Mathilde",
+  "Gerhild",
+  "Ottilie",
+  "Therese",
+  "Oda",
+  "Auguste",
+  "Ursula",
+  "Else",
+  "Ingrid",
+  "Günther"
+];
+function randomBotName(room) {
+  const usedBase = new Set((room?.seats || []).map(s => String(s.name || '').replace(/\s*\(B\)$/, '')));
+  const available = BOT_FIRST_NAMES.filter(name => !usedBase.has(name));
+  const pool = available.length ? available : BOT_FIRST_NAMES;
+  return pool[Math.floor(Math.random() * pool.length)] + ' (B)';
+}
+
+
+function log(message, data = {}) {
+  console.log(`[room] ${message}`, data);
+}
+
+function makeRoomCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    let code = "";
+    for (let i = 0; i < 4; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+    if (!rooms.has(code)) return code;
+  }
+  throw new Error("Kein eindeutiger Tischcode konnte erstellt werden.");
+}
+
+function makeToken() {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+function cleanName(name) {
+  const s = String(name || "").trim();
+  return s.length ? s.slice(0, 24) : "Spieler";
+}
+
+function emptySeats() {
+  return [0, 1, 2, 3].map((seat) => ({
+    seat,
+    type: "open", // "open" | "human" | "bot"
+    name: null,
+    socketId: null,
+    reconnectToken: null,
+    disconnected: false,
+    disconnectedAt: null,
+    botControlAfter: null,
+  }));
+}
+
+function touch(room) {
+  room.lastActivity = Date.now();
+}
+
+function normalizeCode(roomCode) {
+  return String(roomCode || "").trim().toUpperCase();
+}
+
+function requireRoom(roomCode) {
+  const code = normalizeCode(roomCode);
+  const room = rooms.get(code);
+  if (!room) throw new Error("Tisch nicht gefunden.");
+  touch(room);
+  return room;
+}
+
+function requireHost(room, socketId) {
+  if (room.hostSocketId !== socketId) throw new Error("Das darf nur die Spielleitung machen.");
+}
+
+function assertLobby(room) {
+  if (room.status !== "lobby") throw new Error("Der Tisch ist nicht mehr in der Lobby.");
+}
+
+function normalizeMatchRutschen(value) {
+  return Number(value) === 1 ? 1 : 2;
+}
+
+function defaultRoomSettings(settings = {}) {
+  return {
+    matchRutschen: normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
+    showPenaltyTracker: settings.showPenaltyTracker !== false,
+    easyMode: settings.easyMode === true,
+  };
+}
+
+export function publicRoom(room) {
+  return {
+    roomCode: room.roomCode,
+    hostSocketId: room.hostSocketId,
+    status: room.status,
+    seats: room.seats.map((s) => ({
+      seat: s.seat,
+      type: s.type,
+      name: s.name,
+      socketId: s.socketId,
+      disconnected: Boolean(s.disconnected),
+      botControlled: isBotControlledSeat(room, s.seat),
+      botControlAvailableAt: s.disconnected ? (s.botControlAfter || null) : null,
+      isHost: Boolean(s.socketId && s.socketId === room.hostSocketId),
+    })),
+    createdAt: room.createdAt,
+    lastActivity: room.lastActivity,
+    settings: defaultRoomSettings(room.settings),
+    spectatorCount: room.spectators?.size || 0,
+  };
+}
+
+function privateTokenForSocket(room, socketId) {
+  const seat = findSeatForSocket(room, socketId);
+  return seat?.reconnectToken || null;
+}
+
+export function publicRoomWithToken(room, socketId) {
+  return { room: publicRoom(room), reconnectToken: privateTokenForSocket(room, socketId) };
+}
+
+function findSeatForSocket(room, socketId) {
+  return room.seats.find((s) => s.type === "human" && s.socketId === socketId) || null;
+}
+
+function findSeatForToken(room, token) {
+  if (!token) return null;
+  return room.seats.find((s) => s.type === "human" && s.reconnectToken === token) || null;
+}
+
+function isConnectedHumanSeat(room, seat) {
+  const s = room.seats[seat];
+  return s?.type === "human" && Boolean(s.socketId);
+}
+
+function hasConnectedHumanPlayers(room) {
+  return Boolean(room?.seats?.some((s) => s.type === "human" && Boolean(s.socketId)));
+}
+
+function isDisconnectedHumanBotReady(seat, now = Date.now()) {
+  return seat?.type === "human" && !seat.socketId && Boolean(seat.disconnected) &&
+    Number.isFinite(Number(seat.botControlAfter)) && now >= Number(seat.botControlAfter);
+}
+
+function isBotControlledSeat(room, seat) {
+  const s = room.seats[seat];
+  return s?.type === "bot" || isDisconnectedHumanBotReady(s);
+}
+
+export function nextDisconnectedBotControlAt(room) {
+  if (!room?.seats) return null;
+  const futureTimes = room.seats
+    .filter((s) => s.type === "human" && !s.socketId && Boolean(s.disconnected) && Number.isFinite(Number(s.botControlAfter)))
+    .map((s) => Number(s.botControlAfter));
+  return futureTimes.length ? Math.min(...futureTimes) : null;
+}
+
+function publicScoresForBot(room) {
+  const scores = room?.game?.scores || [0, 0, 0, 0];
+  const roundScores = room?.game?.gs?.roundPts || [0, 0, 0, 0];
+  return {
+    scores: [...scores],
+    roundScores: [...roundScores],
+    projectedScores: scores.map((score, i) => score + (roundScores[i] || 0)),
+    scoreHigherIsBetter: true,
+  };
+}
+
+function botDecisionGameState(room) {
+  return {
+    ...room.game.gs,
+    ...publicScoresForBot(room),
+  };
+}
+
+function playerOwnsDisconnectedSeat(seat, token, name) {
+  if (!seat || seat.type !== "human" || seat.socketId || !seat.disconnected) return false;
+  if (token && seat.reconnectToken && seat.reconnectToken === token) return true;
+  return Boolean(name) && cleanName(name) === seat.name;
+}
+
+function validateCardsInHand(hand, cards, requiredCount) {
+  if (!Array.isArray(cards) || cards.length !== requiredCount) {
+    throw new Error(`Bitte genau ${requiredCount} Karten auswählen.`);
+  }
+  const handCopy = [...hand];
+  const out = [];
+  for (const raw of cards) {
+    const card = { s: raw?.s, v: Number(raw?.v) };
+    const idx = handCopy.findIndex((c) => sameCard(c, card));
+    if (idx < 0) throw new Error("Diese Karte ist nicht auf deiner Hand.");
+    out.push(handCopy[idx]);
+    handCopy.splice(idx, 1);
+  }
+  return out;
+}
+
+function createGameState(dealer, settings = {}) {
+  const roomSettings = defaultRoomSettings(settings);
+  return {
+    round: 1,
+    maxRounds: GAMES_PER_RUNDE * roomSettings.matchRutschen,
+    matchRutschen: roomSettings.matchRutschen,
+    scores: [0, 0, 0, 0],
+    dealer,
+    phase: "quetsch", // "quetsch" | "quetsch_review" | "trick_done" | "play" | "round_done" | "gameover"
+    gs: dealRound(dealer),
+    quetschSelections: [null, null, null, null],
+    quetschReceived: [[], [], [], []],
+    quetschReviewUntil: null,
+    currentQuetschSeat: null,
+    lastTrick: null,
+    trickReviewUntil: null,
+    lastRound: null,
+  };
+}
+
+function ensureBotQuetschSelections(room) {
+  const game = room.game;
+  if (!game || game.phase !== "quetsch") return;
+  for (let seat = 0; seat < 4; seat++) {
+    if (isBotControlledSeat(room, seat) && !game.quetschSelections[seat]) {
+      game.quetschSelections[seat] = heuristicQuetschPick(game.gs.hands[seat]);
+      log("Bot wählt Quetsch-Karten", { roomCode: room.roomCode, seat });
+    }
+  }
+}
+
+function pendingHumanQuetschSeats(room) {
+  const game = room.game;
+  if (!game || game.phase !== "quetsch") return [];
+  const pending = [];
+  for (let seat = 0; seat < 4; seat++) {
+    if (isConnectedHumanSeat(room, seat) && !game.quetschSelections[seat]) pending.push(seat);
+  }
+  return pending;
+}
+
+function allQuetschSelectionsReady(room) {
+  return room.game.quetschSelections.every((selection) => Array.isArray(selection) && selection.length === 3);
+}
+
+function visibleQuetschReceivedForSeat(game, seatIndex) {
+  if (!game || seatIndex === null || seatIndex === undefined) return [];
+
+  if (game.phase === "quetsch") {
+    const hasSubmittedOwnQuetsch = Array.isArray(game.quetschSelections?.[seatIndex]);
+    if (!hasSubmittedOwnQuetsch) return [];
+
+    const sourceSeat = (seatIndex + 3) % 4;
+    const sourceSelection = game.quetschSelections?.[sourceSeat];
+    return Array.isArray(sourceSelection) && sourceSelection.length === 3
+      ? sourceSelection.map((card) => ({ ...card }))
+      : [];
+  }
+
+  return Array.isArray(game.quetschReceived?.[seatIndex])
+    ? game.quetschReceived[seatIndex].map((card) => ({ ...card }))
+    : [];
+}
+
+function startQuetschReview(room) {
+  const game = room.game;
+  const selections = game.quetschSelections.map((sel) => [...sel]);
+  const received = [[], [], [], []];
+  for (let seat = 0; seat < 4; seat++) {
+    received[(seat + 1) % 4] = [...selections[seat]];
+  }
+  game.gs = applyQuetschSelections(game.gs, selections);
+  game.quetschReceived = received;
+  game.quetschSelections = [null, null, null, null];
+  game.currentQuetschSeat = null;
+  game.quetschReviewUntil = Date.now() + QUETSCH_REVIEW_MS;
+  game.phase = "quetsch_review";
+  log("Quetsch beendet, zeige neue Karten", { roomCode: room.roomCode, round: game.round });
+}
+
+function finishQuetschReview(room) {
+  const game = room.game;
+  if (!game || game.phase !== "quetsch_review") return false;
+  if (Date.now() < (game.quetschReviewUntil || 0)) return false;
+  game.phase = "play";
+  game.quetschReviewUntil = null;
+  log("Spielphase nach Quetsch-Anzeige gestartet", { roomCode: room.roomCode, round: game.round });
+  return true;
+}
+
+function finishTrickReview(room) {
+  const game = room.game;
+  if (!game || game.phase !== "trick_done") return false;
+  if (Date.now() < (game.trickReviewUntil || 0)) return false;
+  game.trickReviewUntil = null;
+  if (game.lastTrick?.isFinal) {
+    finishRound(room);
+  } else {
+    game.gs = clearFinishedTrick(game.gs);
+    game.phase = "play";
+  }
+  log("Stichanzeige beendet", { roomCode: room.roomCode, round: game.round });
+  return true;
+}
+
+function finishRound(room) {
+  const game = room.game;
+  const gs = game.gs;
+  const nextScores = game.scores.map((score, seat) => score + gs.roundPts[seat]);
+
+  game.lastRound = {
+    round: game.round,
+    dealer: game.dealer,
+    roundPts: [...gs.roundPts],
+    totalScores: [...nextScores],
+    tricksWon: [...gs.tricksWon],
+  };
+  game.scores = nextScores;
+
+  if (game.round >= game.maxRounds) {
+    game.phase = "gameover";
+    log("Spiel beendet", { roomCode: room.roomCode, scores: game.scores });
+    return;
+  }
+
+  game.phase = "round_done";
+  game.currentQuetschSeat = null;
+  log("Rutsche beendet, wartet auf nächste Rutsche", {
+    roomCode: room.roomCode,
+    round: game.round,
+    roundPts: game.lastRound.roundPts,
+    scores: game.scores,
+  });
+}
+
+function applyOnlineCard(room, player, card) {
+  const game = room.game;
+  const legal = getValidCards(game.gs, player);
+  if (!legal.some((c) => sameCard(c, card))) throw new Error("Diese Karte darf hier nicht gespielt werden.");
+
+  const next = applyCard(game.gs, player, card);
+  if (!next) throw new Error("Die Karte konnte nicht gespielt werden.");
+
+  if (next._trickJustFinished) {
+    const isFinalTrick = next.tricksPlayed >= 13;
+    const reviewDelayMs = isFinalTrick ? FINAL_TRICK_DISPLAY_MS : TRICK_DISPLAY_MS;
+    game.lastTrick = {
+      winner: next._trickWinner,
+      pts: next._trickNet,
+      trick: next._trickCards,
+      isFinal: isFinalTrick,
+    };
+    game.trickReviewUntil = Date.now() + reviewDelayMs;
+    game.phase = "trick_done";
+    game.gs = next;
+  } else {
+    game.gs = next;
+    game.phase = "play";
+  }
+}
+
+export function advanceNonCardPhases(room) {
+  if (!room?.game || room.status !== "playing") return false;
+  let changed = false;
+
+  if (room.game.phase === "quetsch") {
+    ensureBotQuetschSelections(room);
+    changed = true;
+    const pendingHumans = pendingHumanQuetschSeats(room);
+    room.game.currentQuetschSeat = pendingHumans[0] ?? null;
+    if (allQuetschSelectionsReady(room)) {
+      startQuetschReview(room);
+      changed = true;
+    }
+  }
+
+  if (room.game.phase === "quetsch_review") {
+    changed = finishQuetschReview(room) || changed;
+  }
+  if (room.game.phase === "trick_done") {
+    changed = finishTrickReview(room) || changed;
+  }
+
+  return changed;
+}
+
+export function advanceOneBotCard(room) {
+  if (!room?.game || room.status !== "playing") return false;
+  advanceNonCardPhases(room);
+  const game = room.game;
+  if (game.phase !== "play") return false;
+  const player = game.gs.currentPlayer;
+  if (!isBotControlledSeat(room, player)) return false;
+  const card = chooseHeuristicCard(botDecisionGameState(room), player);
+  log("Bot spielt Karte", { roomCode: room.roomCode, seat: player, card });
+  applyOnlineCard(room, player, card);
+  advanceNonCardPhases(room);
+  touch(room);
+  return true;
+}
+
+export function advanceGameUntilHumanDecision(room) {
+  if (!room?.game || room.status !== "playing") return;
+  let safety = 0;
+  while (room.game.phase !== "gameover" && room.game.phase !== "round_done") {
+    if (++safety > 250) throw new Error("Spielfortschritt überschreitet Sicherheitslimit.");
+    advanceNonCardPhases(room);
+    if (room.game.phase !== "play") return;
+    const player = room.game.gs.currentPlayer;
+    if (!isBotControlledSeat(room, player)) return;
+    advanceOneBotCard(room);
+  }
+}
+
+export function createRoom({ hostSocketId, name, settings = {} }) {
+  const roomCode = makeRoomCode();
+  const seats = emptySeats();
+  seats[0] = {
+    seat: 0,
+    type: "human",
+    name: cleanName(name),
+    socketId: hostSocketId,
+    reconnectToken: makeToken(),
+    disconnected: false,
+    disconnectedAt: null,
+    botControlAfter: null,
+  };
+  const room = {
+    roomCode,
+    hostSocketId,
+    status: "lobby",
+    seats,
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+    settings: defaultRoomSettings(settings),
+    spectators: new Set(),
+    game: null,
+  };
+  rooms.set(roomCode, room);
+  log("Tisch erstellt", { roomCode, hostSocketId });
+  return publicRoomWithToken(room, hostSocketId);
+}
+
+export function getInternalRoom(roomCode) {
+  return requireRoom(roomCode);
+}
+
+export function joinRoom({ roomCode }) {
+  const room = requireRoom(roomCode);
+  return publicRoom(room);
+}
+export function spectateRoom({ roomCode, socketId }) {
+  const room = requireRoom(roomCode);
+  if (room.status !== "playing" || !room.game) throw new Error("Der Tisch spielt gerade nicht.");
+  if (findSeatForSocket(room, socketId)) throw new Error("Du sitzt bereits an diesem Tisch.");
+  if (!room.spectators) room.spectators = new Set();
+  room.spectators.add(socketId);
+  log("Zuschauer betritt Tisch", { roomCode: room.roomCode, socketId });
+  return publicRoom(room);
+}
+
+export function takeOverBotSeat({ roomCode, socketId, name, seat = null, reconnectToken = null }) {
+  const room = requireRoom(roomCode);
+  if (room.status !== "playing" || !room.game) throw new Error("Der Tisch spielt gerade nicht.");
+  if (findSeatForSocket(room, socketId)) throw new Error("Du sitzt bereits an diesem Tisch.");
+
+  const requestedSeat = seat === null || seat === undefined || seat === "" ? null : Number(seat);
+  if (requestedSeat !== null && (!Number.isInteger(requestedSeat) || requestedSeat < 0 || requestedSeat > 3)) {
+    throw new Error("Ungültiger Bot-Platz.");
+  }
+
+  const ownedDisconnectedSeats = room.seats.filter((s) => playerOwnsDisconnectedSeat(s, reconnectToken, name));
+  let target = null;
+
+  if (ownedDisconnectedSeats.length) {
+    // If the joining client has a previous disconnected seat, do not allow it to
+    // jump to an unrelated fresh bot seat.  This preserves seat/hand continuity.
+    target = requestedSeat === null
+      ? ownedDisconnectedSeats[0]
+      : ownedDisconnectedSeats.find((s) => s.seat === requestedSeat);
+    if (!target) throw new Error("Du kannst nur deinen bisherigen Platz wieder übernehmen.");
+  } else {
+    target = requestedSeat === null
+      ? room.seats.find((s) => s.type === "bot")
+      : room.seats[requestedSeat];
+    if (!target || target.type !== "bot") throw new Error("Es gibt keinen Bot-Platz, den du übernehmen kannst.");
+  }
+
+  target.type = "human";
+  target.name = cleanName(name || target.name);
+  target.socketId = socketId;
+  target.reconnectToken = makeToken();
+  target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
+  room.spectators?.delete(socketId);
+
+  log(ownedDisconnectedSeats.length ? "Vorheriger Platz wurde wieder übernommen" : "Bot-Platz wurde übernommen", {
+    roomCode: room.roomCode,
+    seat: target.seat,
+    socketId,
+  });
+  advanceNonCardPhases(room);
+  return publicRoomWithToken(room, socketId);
+}
+
+
+
+export function claimSeat({ roomCode, socketId, name, seat }) {
+  const room = requireRoom(roomCode);
+  assertLobby(room);
+  const seatIndex = Number(seat);
+  if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex > 3) throw new Error("Ungültiger Sitzplatz.");
+  const target = room.seats[seatIndex];
+  if (target.type !== "open") throw new Error("Dieser Sitzplatz ist nicht frei.");
+
+  for (const s of room.seats) {
+    if (s.type === "human" && s.socketId === socketId) {
+      s.type = "open";
+      s.name = null;
+      s.socketId = null;
+      s.reconnectToken = null;
+      s.disconnected = false;
+      s.disconnectedAt = null;
+      s.botControlAfter = null;
+    }
+  }
+
+  target.type = "human";
+  target.name = cleanName(name);
+  target.socketId = socketId;
+  target.reconnectToken = makeToken();
+  target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
+  log("Sitzplatz belegt", { roomCode: room.roomCode, seat: seatIndex, socketId });
+  return publicRoomWithToken(room, socketId);
+}
+
+export function reconnectSeat({ roomCode, socketId, token }) {
+  const room = requireRoom(roomCode);
+  const seat = findSeatForToken(room, token);
+  if (!seat) throw new Error("Wiederverbindung nicht möglich.");
+  seat.socketId = socketId;
+  seat.disconnected = false;
+  seat.disconnectedAt = null;
+  seat.botControlAfter = null;
+  if (!room.hostSocketId && seat.reconnectToken === token) room.hostSocketId = socketId;
+  log("Spieler wiederverbunden", { roomCode: room.roomCode, seat: seat.seat, socketId });
+  return publicRoomWithToken(room, socketId);
+}
+
+export function setSeatBot({ roomCode, socketId, seat }) {
+  const room = requireRoom(roomCode);
+  assertLobby(room);
+  requireHost(room, socketId);
+  const seatIndex = Number(seat);
+  if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex > 3) throw new Error("Ungültiger Sitzplatz.");
+  const target = room.seats[seatIndex];
+  if (target.socketId === room.hostSocketId) throw new Error("Der Host-Sitz kann nicht zum Bot werden.");
+  if (target.type === "human" && target.socketId) throw new Error("Aktive Menschen können nicht durch Bots ersetzt werden.");
+  target.type = "bot";
+  target.name = randomBotName(room);
+  target.socketId = null;
+  target.reconnectToken = null;
+  target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
+  log("Sitzplatz auf Bot gesetzt", { roomCode: room.roomCode, seat: seatIndex });
+  return publicRoom(room);
+}
+
+export function setSeatOpen({ roomCode, socketId, seat }) {
+  const room = requireRoom(roomCode);
+  assertLobby(room);
+  requireHost(room, socketId);
+  const seatIndex = Number(seat);
+  if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex > 3) throw new Error("Ungültiger Sitzplatz.");
+  const target = room.seats[seatIndex];
+  if (target.socketId === room.hostSocketId) throw new Error("Der Host-Sitz kann nicht geöffnet werden.");
+  if (target.type === "human" && target.socketId) throw new Error("Aktive Menschen können nicht entfernt werden.");
+  target.type = "open";
+  target.name = null;
+  target.socketId = null;
+  target.reconnectToken = null;
+  target.disconnected = false;
+  target.disconnectedAt = null;
+  target.botControlAfter = null;
+  log("Sitzplatz geöffnet", { roomCode: room.roomCode, seat: seatIndex });
+  return publicRoom(room);
+}
+
+export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker, easyMode }) {
+  const room = requireRoom(roomCode);
+  assertLobby(room);
+  requireHost(room, socketId);
+  const next = defaultRoomSettings(room.settings);
+  if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
+  if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
+  if (easyMode !== undefined) next.easyMode = easyMode === true;
+  room.settings = next;
+  log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
+  return publicRoom(room);
+}
+
+export function startOnlineGame({ roomCode, socketId }) {
+  const room = requireRoom(roomCode);
+  assertLobby(room);
+  requireHost(room, socketId);
+  const openSeat = room.seats.find((s) => s.type === "open");
+  if (openSeat) throw new Error("Alle Plätze müssen mit Menschen oder Bots besetzt sein.");
+  const humanCount = room.seats.filter((s) => s.type === "human").length;
+  if (humanCount < 1) throw new Error("Mindestens ein Mensch muss mitspielen.");
+  const dealer = Math.floor(Math.random() * 4);
+  room.status = "playing";
+  room.game = createGameState(dealer, room.settings);
+  advanceNonCardPhases(room);
+  log("Spiel gestartet", { roomCode: room.roomCode, dealer });
+  return room;
+}
+
+export function startNextOnlineRound({ roomCode, socketId }) {
+  const room = requireRoom(roomCode);
+  if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
+  if (room.game.phase !== "round_done") throw new Error("Die nächste Rutsche kann gerade nicht gestartet werden.");
+
+  const seat = findSeatForSocket(room, socketId);
+  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
+  if (room.hostSocketId && room.hostSocketId !== socketId) {
+    throw new Error("Nur der Host kann die nächste Rutsche starten.");
+  }
+
+  const game = room.game;
+  const nextDealer = (game.dealer + 1) % 4;
+  game.round += 1;
+  game.dealer = nextDealer;
+  game.phase = "quetsch";
+  game.gs = dealRound(nextDealer);
+  game.quetschSelections = [null, null, null, null];
+  game.quetschReceived = [[], [], [], []];
+  game.quetschReviewUntil = null;
+  game.currentQuetschSeat = null;
+  game.lastTrick = null;
+  advanceNonCardPhases(room);
+  log("Nächste Rutsche gestartet", { roomCode: room.roomCode, round: game.round, dealer: nextDealer, socketId });
+  return room;
+}
+
+export function submitOnlineQuetsch({ roomCode, socketId, cards }) {
+  const room = requireRoom(roomCode);
+  if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
+  if (room.game.phase !== "quetsch") throw new Error("Es ist gerade keine Quetsch-Phase.");
+  const seat = findSeatForSocket(room, socketId);
+  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
+  if (Array.isArray(room.game.quetschSelections[seat.seat])) throw new Error("Du hast deine Quetsch-Karten schon ausgewählt.");
+  room.game.quetschSelections[seat.seat] = validateCardsInHand(room.game.gs.hands[seat.seat], cards, 3);
+  log("Mensch wählt Quetsch-Karten", { roomCode: room.roomCode, seat: seat.seat });
+  advanceNonCardPhases(room);
+  return room;
+}
+
+export function playOnlineCard({ roomCode, socketId, card }) {
+  const room = requireRoom(roomCode);
+  if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
+  if (room.game.phase !== "play") throw new Error("Es ist gerade keine Kartenphase.");
+  const seat = findSeatForSocket(room, socketId);
+  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
+  if (room.game.gs.currentPlayer !== seat.seat) throw new Error("Du bist nicht am Zug.");
+  const hand = room.game.gs.hands[seat.seat];
+  const [validated] = validateCardsInHand(hand, [card], 1);
+  applyOnlineCard(room, seat.seat, validated);
+  log("Mensch spielt Karte", { roomCode: room.roomCode, seat: seat.seat, card: validated });
+  advanceNonCardPhases(room);
+  return room;
+}
+
+export function getPrivateGameView(room, socketId) {
+  if (!room?.game) return null;
+  const seat = findSeatForSocket(room, socketId);
+  const seatIndex = seat?.seat ?? null;
+  const game = room.game;
+  const gs = game.gs;
+  const names = room.seats.map((s) => s.name || (s.type === "bot" ? "Bot (B)" : `Platz ${s.seat + 1}`));
+  const seatTypes = room.seats.map((s) => (s.type === "human" && isBotControlledSeat(room, s.seat) ? "bot" : s.type));
+  const ownQuetschSelection = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex])
+    ? game.quetschSelections[seatIndex]
+    : [];
+  const hand = seatIndex === null
+    ? []
+    : sortHand((gs.hands[seatIndex] || []).filter((card) => !ownQuetschSelection.some((q) => sameCard(q, card))));
+  const validCards = seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex ? getValidCards(gs, seatIndex) : [];
+  const settings = defaultRoomSettings(room.settings);
+  let suggestion = null;
+  if (settings.easyMode && seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex && validCards.length) {
+    const rec = recommendHeuristicCards(botDecisionGameState(room), seatIndex);
+    suggestion = {
+      cards: Array.isArray(rec?.cards) ? rec.cards.filter((card) => validCards.some((valid) => sameCard(valid, card))) : [],
+      rule: rec?.rule || "normal_follow",
+      reason: rec?.reason || "Der Bot empfiehlt diese Karte nach seiner normalen Sicherheits- und Stichlogik.",
+      reasonByCard: rec?.reasonByCard || {},
+    };
+    if (!suggestion.cards.length) suggestion = null;
+  }
+  const pendingQuetschSeats = game.phase === "quetsch" ? pendingHumanQuetschSeats(room) : [];
+  const quetschSubmitted = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex]);
+  const quetschReceived = visibleQuetschReceivedForSeat(game, seatIndex);
+  const runScores = game.scores.map((score, i) => score + (gs.roundPts?.[i] || 0));
+  return {
+    phase: game.phase,
+    yourSeat: seatIndex,
+    round: game.round,
+    maxRounds: game.maxRounds,
+    matchRutschen: game.matchRutschen ?? settings.matchRutschen,
+    showPenaltyTracker: settings.showPenaltyTracker,
+    easyMode: settings.easyMode,
+    suggestion,
+    names,
+    seatTypes,
+    dealer: gs.dealer,
+    currentPlayer: game.phase === "play" ? gs.currentPlayer : null,
+    currentQuetschSeat: game.phase === "quetsch" ? game.currentQuetschSeat : null,
+    pendingQuetschSeats,
+    quetschSubmitted,
+    quetschNeeded: game.phase === "quetsch" && seatIndex !== null && !quetschSubmitted,
+    quetschTarget: seatIndex !== null ? (seatIndex + 1) % 4 : null,
+    quetschSource: seatIndex !== null ? (seatIndex + 3) % 4 : null,
+    quetschReceived,
+    quetschPassed: ownQuetschSelection,
+    quetschReviewRemainingMs: game.phase === "quetsch_review" ? Math.max(0, (game.quetschReviewUntil || Date.now()) - Date.now()) : 0, trickReviewRemainingMs: game.phase === "trick_done" ? Math.max(0, (game.trickReviewUntil || Date.now()) - Date.now()) : 0,
+    hand,
+    validCards,
+    trick: gs.trick,
+    leadSuit: gs.leadSuit,
+    tricksPlayed: gs.tricksPlayed,
+    roundPts: gs.roundPts,
+    runScores,
+    scores: game.scores,
+    tricksWon: gs.tricksWon,
+    penaltyPlayed: gs.penaltyPlayed,
+    lastTrick: game.lastTrick,
+    lastRound: game.lastRound,
+    cardPointPreview: hand.reduce((acc, c) => ({ ...acc, [`${c.s}${c.v}`]: cardPts(c) }), {}),
+    canStartNextRound: game.phase === "round_done" && seatIndex !== null && (room.hostSocketId === socketId || !room.hostSocketId),
+  };
+}
+
+export function getSpectatorGameView(room) {
+  return getPrivateGameView(room, null);
+}
+
+export function closeRoomIfNoConnectedHumanPlayers(roomCode) {
+  const code = normalizeCode(roomCode);
+  const room = rooms.get(code);
+  if (!room) return false;
+  if (hasConnectedHumanPlayers(room)) return false;
+  rooms.delete(code);
+  log("Tisch geschlossen, keine verbundenen Menschen", { roomCode: code });
+  return true;
+}
+
+export function leaveRoom({ roomCode, socketId }) {
+  const room = requireRoom(roomCode);
+  room.spectators?.delete(socketId);
+  const isHost = room.hostSocketId === socketId;
+  if (isHost && room.status === "lobby") {
+    rooms.delete(room.roomCode);
+    log("Host verlässt Lobby, Tisch geschlossen", { roomCode: room.roomCode });
+    return { closed: true, roomCode: room.roomCode };
+  }
+  const now = Date.now();
+  for (const s of room.seats) {
+    if (s.type === "human" && s.socketId === socketId) {
+      s.socketId = null;
+      s.disconnected = true;
+      s.disconnectedAt = now;
+      s.botControlAfter = now + DISCONNECTED_HUMAN_BOT_DELAY_MS;
+    }
+  }
+  if (isHost) room.hostSocketId = null;
+  advanceNonCardPhases(room);
+  log("Spieler verlässt Tisch", { roomCode: room.roomCode, socketId });
+  return { closed: false, room: publicRoom(room) };
+}
+
+export function leaveAllRoomsForSocket(socketId) {
+  const results = [];
+  for (const room of [...rooms.values()]) {
+    const isInRoom = room.hostSocketId === socketId || room.seats.some((s) => s.socketId === socketId) || room.spectators?.has(socketId);
+    if (!isInRoom) continue;
+    if (room.hostSocketId === socketId && room.status === "lobby") {
+      rooms.delete(room.roomCode);
+      results.push({ closed: true, roomCode: room.roomCode });
+      log("Host getrennt, Lobby geschlossen", { roomCode: room.roomCode });
+    } else {
+      room.spectators?.delete(socketId);
+      const now = Date.now();
+      for (const s of room.seats) {
+        if (s.type === "human" && s.socketId === socketId) {
+          s.socketId = null;
+          s.disconnected = true;
+          s.disconnectedAt = now;
+          s.botControlAfter = now + DISCONNECTED_HUMAN_BOT_DELAY_MS;
+        }
+      }
+      if (room.hostSocketId === socketId) room.hostSocketId = null;
+      if (room.status === "playing" && room.game) advanceNonCardPhases(room);
+      results.push({ closed: false, room: publicRoom(room) });
+      log("Spieler getrennt", { roomCode: room.roomCode, socketId });
+    }
+  }
+  return results;
+}
+
+export function pruneExpiredRooms(now = Date.now()) {
+  const expired = [];
+  for (const room of [...rooms.values()]) {
+    if (now - room.lastActivity > ROOM_TTL_MS) {
+      rooms.delete(room.roomCode);
+      expired.push(room.roomCode);
+      log("Tisch wegen Inaktivität entfernt", { roomCode: room.roomCode });
+    }
+  }
+  return expired;
+}
