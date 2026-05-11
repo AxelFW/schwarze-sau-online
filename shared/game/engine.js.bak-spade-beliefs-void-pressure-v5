@@ -21,10 +21,6 @@ export const dealRound = (dealer, rng = Math.random) => {
     trickHistory: [],
     quetschPassedLeft: [[], [], [], []],
     knownVoids: [0, 1, 2, 3].map(() => [false, false, false, false]), // C/D/H/S
-    spadeBeliefs: {
-      probableNoLowSpades: [false, false, false, false],
-      suspectedQueenHolder: [false, false, false, false],
-    },
   };
 };
 
@@ -37,34 +33,9 @@ export const applyCard = (prevGs, player, card) => {
   const newTrick = [...prevGs.trick, { player, card }];
   const newLeadSuit = prevGs.trick.length === 0 ? card.s : prevGs.leadSuit;
   const newKnownVoids = (prevGs.knownVoids ?? [0, 1, 2, 3].map(() => [false, false, false, false])).map(row => [...row]);
-  const prevSpadeBeliefs = prevGs.spadeBeliefs ?? {};
-  const newSpadeBeliefs = {
-    probableNoLowSpades: [false, false, false, false].map((fallback, i) =>
-      Boolean(prevSpadeBeliefs.probableNoLowSpades?.[i] ?? fallback)
-    ),
-    suspectedQueenHolder: [false, false, false, false].map((fallback, i) =>
-      Boolean(prevSpadeBeliefs.suspectedQueenHolder?.[i] ?? fallback)
-    ),
-  };
 
   if (prevGs.leadSuit && card.s !== prevGs.leadSuit) {
     newKnownVoids[player][suitIdx(prevGs.leadSuit)] = true;
-  }
-
-  // Bot-belief support: infer spade-specific soft beliefs from public play.
-  // 1) If a player follows a spade trick with ♠Q before any ♠K/♠A is already
-  //    in that trick, they probably lacked harmless low spade shields.
-  if (prevGs.leadSuit === 'S' && prevGs.trick.length > 0 && card.s === 'S' && card.v === 12) {
-    const highSpadeAlreadyInTrick = prevGs.trick.some(x => x.card?.s === 'S' && (x.card.v === 13 || x.card.v === 14));
-    if (!highSpadeAlreadyInTrick) newSpadeBeliefs.probableNoLowSpades[player] = true;
-  }
-
-  // 2) If a player voluntarily uses ♠K/♠A before last position while ♠Q is
-  //    still live, treat that player as a likely ♠Q-holder.
-  const queenSpadesAlreadySeen = [...(prevGs.trickHistory ?? []), ...(prevGs.trick ?? []).map(x => x.card)]
-    .some(c => c?.s === 'S' && c?.v === 12);
-  if (newLeadSuit === 'S' && card.s === 'S' && (card.v === 13 || card.v === 14) && newTrick.length <= 3 && !queenSpadesAlreadySeen) {
-    newSpadeBeliefs.suspectedQueenHolder[player] = true;
   }
 
   if (newTrick.length === 4) {
@@ -85,7 +56,6 @@ export const applyCard = (prevGs, player, card) => {
         : [...(prevGs.negativeTrickSuits ?? [])],
       trickHistory: [...prevGs.trickHistory, ...newTrick.map(x => x.card)],
       knownVoids: newKnownVoids,
-      spadeBeliefs: newSpadeBeliefs,
       currentPlayer: winner,
       _trickJustFinished: true,
       _trickWinner: winner,
@@ -100,7 +70,6 @@ export const applyCard = (prevGs, player, card) => {
     trick: newTrick,
     leadSuit: newLeadSuit,
     knownVoids: newKnownVoids,
-    spadeBeliefs: newSpadeBeliefs,
     currentPlayer: (player + 1) % 4,
     _trickJustFinished: false,
   };

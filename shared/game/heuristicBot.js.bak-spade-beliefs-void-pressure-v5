@@ -466,43 +466,9 @@ const penaltiesStillOut = (gs, player) => remainingPenaltiesOutside(gs, player).
 const remainingPenaltyCost = cards =>
   -cards.reduce((sum, c) => sum + Math.min(0, cardPts(c)), 0);
 
-const allPenaltyCards = () => [QUEEN_SPADES, ...cardsOfSuit('H')];
-
-const unresolvedNegativePressure = gs => {
-  // Negative pressure means all penalty cards not yet locked away in completed
-  // tricks.  This includes the current trick and every hand, including our own.
-  const completed = completedCards(gs);
-  return remainingPenaltyCost(allPenaltyCards().filter(c => !cardIn(completed, c)));
-};
-
-const lowNegativePressureMode = gs => unresolvedNegativePressure(gs) <= 10;
-
-const knownVoidInSuit = (gs, player, suit) =>
-  Boolean(gs.knownVoids?.[player]?.[suitIdx(suit)]);
-
-const playerCanStillDumpNegative = (gs, player) => {
-  // In low-pressure mode, void fear is deliberately switched off.
-  if(lowNegativePressureMode(gs)) return false;
-
-  const unavailable = new Set([...completedCards(gs), ...trickCards(gs)].map(cardKey));
-  const heartsStillAvailable = cardsOfSuit('H').some(c => !unavailable.has(cardKey(c)));
-  const canDumpHearts = heartsStillAvailable && !knownVoidInSuit(gs, player, 'H');
-
-  const queenStillAvailable =
-    !queenSpadesPlayed(gs) &&
-    !queenSpadesInTrick(gs) &&
-    !knownVoidInSuit(gs, player, 'S');
-
-  return canDumpHearts || queenStillAvailable;
-};
-
 const anyOpponentVoidIn = (gs, player, suit) => {
-  if(lowNegativePressureMode(gs)) return false;
   const si = suitIdx(suit);
-  return [1,2,3].some(off => {
-    const p = (player + off) % 4;
-    return gs.knownVoids?.[p]?.[si] && playerCanStillDumpNegative(gs, p);
-  });
+  return [1,2,3].some(off => gs.knownVoids?.[(player + off) % 4]?.[si]);
 };
 
 const worstVoidDumpCost = (gs, player, suit) => {
@@ -520,7 +486,6 @@ const suitVoidPenaltyRisk = (gs, player, suit) => {
 };
 
 const harvestModeActive = (gs, player) => {
-  if(lowNegativePressureMode(gs)) return true;
   const penalties = remainingPenaltiesOutside(gs, player);
   if(!penalties.length) return true;
   if(penalties.some(c => sameCard(c, QUEEN_SPADES))) return false;
@@ -669,9 +634,7 @@ const unseenRankCounts = (card, gs, player) => {
 };
 
 const voidRiskyWinningLead = (card, gs, player) =>
-  !lowNegativePressureMode(gs) &&
-  suitVoidPenaltyRisk(gs, player, card.s) &&
-  highWinProbability(card, gs, player);
+  suitVoidPenaltyRisk(gs, player, card.s) && highWinProbability(card, gs, player);
 
 const leastBadVoidRiskLeadCandidates = (cards, gs, player) => {
   if(!cards.length) return [];
@@ -764,13 +727,9 @@ const comb = (n, k) => {
 
 const followSuitNonVoidProbability = (gs, player, targetPlayer, suit) => {
   if(!suit || !Number.isInteger(targetPlayer)) return 0;
-  if(lowNegativePressureMode(gs)) return 1;
 
   const si = suitIdx(suit);
-  if(gs.knownVoids?.[targetPlayer]?.[si]) {
-    // A known void is only bad if that player can still dump negative cards.
-    return playerCanStillDumpNegative(gs, targetPlayer) ? 0 : 1;
-  }
+  if(gs.knownVoids?.[targetPlayer]?.[si]) return 0;
 
   const unseenSuitCount = unseenCardsOfSuit(gs, player, suit).length;
   if(unseenSuitCount <= 0) return 0;
@@ -790,32 +749,6 @@ const followSuitNonVoidProbability = (gs, player, targetPlayer, suit) => {
 
   const pVoid = comb(unknownTotal - unseenSuitCount, targetHandSize) / denom;
   return clamp01(1 - pVoid);
-};
-
-const applyOvertakeRiskMultiplier = (pTake, gs, player, laterPlayers) => {
-  // Soft spade beliefs affect voluntary 2nd/3rd-position overtakes only.
-  // They never block legal play, forced wins, or 4th-position positive takes.
-  if(lowNegativePressureMode(gs)) return clamp01(pTake);
-
-  const beliefs = gs.spadeBeliefs ?? {};
-  const probableNoLowSpades = beliefs.probableNoLowSpades ?? [];
-  const suspectedQueenHolder = beliefs.suspectedQueenHolder ?? [];
-
-  let p = pTake;
-
-  if(gs.leadSuit === 'S' && !queenSpadesPlayed(gs)) {
-    for(const lp of laterPlayers) {
-      if(probableNoLowSpades[lp]) p *= 0.3;
-    }
-  }
-
-  if((gs.leadSuit === 'C' || gs.leadSuit === 'D') && !queenSpadesPlayed(gs) && !queenSpadesInTrick(gs) && !queenSpadesInHand(gs, player)) {
-    for(const lp of laterPlayers) {
-      if(suspectedQueenHolder[lp]) p *= 0.3;
-    }
-  }
-
-  return clamp01(p);
 };
 
 const positiveFollowWinners = (cards, gs, player) => {
@@ -960,7 +893,7 @@ const midgameLeadCandidates = (cards, gs, player) => {
   // Under serious danger, void creation is now only a midgame tie-breaker after
   // the beatable filter and after safe ♣/♦ ace openers.  Prefer the suit closest
   // to emptying, but do not use this preference if nothing is beatable.
-  if(!lowNegativePressureMode(gs) && seriousDangerOnHand(gs, player) && beatable.length) {
+  if(seriousDangerOnHand(gs, player) && beatable.length) {
     let eligible = pool;
     if(heartDangerOnHand(gs, player)) {
       const nonHearts = eligible.filter(c => c.s !== 'H');
@@ -1001,11 +934,11 @@ const botSuggestionReason = (rule, detail = '') => {
     case 'spade_safety_lead':
       return 'Der Bot vermeidet gefährliche Pik-Anspiele und behält mit ♠K/♠A möglichst eine kleine Pik-Schutzkarte.' + suffix;
     case 'harvest_lead':
-      return 'Der Bot sieht nur noch wenig ungelösten Strafkarten-Druck und versucht nun aktiver positive Stiche zu gewinnen.' + suffix;
+      return 'Der Bot sieht nur noch wenig Strafkarten-Risiko und versucht einen positiven Stich zu gewinnen.' + suffix;
     case 'risky_heart_lead':
       return 'Der Bot meidet riskante Herz-Anspiele und nimmt die sicherere verbliebene Alternative.' + suffix;
     case 'void_risk_lead':
-      return 'Der Bot meidet eine Farbe nur dann wegen Abwurfgefahr, wenn der void Spieler noch wirklich negative Karten abwerfen kann.' + suffix;
+      return 'Der Bot meidet eine Farbe, in der ein Mitspieler vermutlich abwerfen kann, falls die Karte den Stich gewinnt.' + suffix;
     case 'negative_history_lead':
       return 'Der Bot meidet Farben, die schon negative Stiche erzeugt haben, außer die Karte ist ein sicherer Ausstieg.' + suffix;
     case 'void_creation_lead':
@@ -1013,11 +946,11 @@ const botSuggestionReason = (rule, detail = '') => {
     case 'safe_ace_lead':
       return 'Der Bot spielt ein sicheres ♣/♦-Ass, weil es meist einen positiven Stich einsammelt.' + suffix;
     case 'midgame_lead':
-      return 'Im Mittelspiel bevorzugt der Bot erst übernehmbare Karten; nur bei echter Strafkarten-Gefahr zählt danach die kurze Farbe.' + suffix;
+      return 'Im Mittelspiel bevorzugt der Bot zuerst noch übernehmbare Karten; unter Gefahr nimmt er danach eher eine kurze Farbe.' + suffix;
     case 'positive_follow_take':
-      return 'Der Bot übernimmt hier einen voraussichtlich positiven Stich; bei Pik und vermuteten ♠Q-Gefahren wird die Übernahmechance angepasst.' + suffix;
+      return 'Der Bot übernimmt hier einen voraussichtlich positiven Stich; bei Pik bleibt die ♠Q-Sicherheit berücksichtigt.' + suffix;
     case 'positive_follow_duck':
-      return 'Der Bot bleibt hier lieber unter dem Stich, weil spätere Spieler nach Risikoabschätzung noch übernehmen oder gefährlich abwerfen könnten.' + suffix;
+      return 'Der Bot bleibt hier lieber unter dem Stich, weil spätere Spieler noch übernehmen oder abwerfen könnten.' + suffix;
     case 'avoid_bad_follow_win':
       return 'Der Bot vermeidet es, einen aktuell negativen Stich selbst zu gewinnen.' + suffix;
     case 'midgame_follow':
@@ -1259,9 +1192,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
 
     if(positiveWinners.length && losing.length) {
       const fourthPlayer = (player + 1) % 4;
-      const baseTake = followSuitNonVoidProbability(gs, player, fourthPlayer, gs.leadSuit);
-      const pTake = applyOvertakeRiskMultiplier(baseTake, gs, player, [fourthPlayer]);
-      const detail = '(geschätzt: ' + (100 * pTake).toFixed(0) + '% Risiko-abgewogene Übernahmechance).';
+      const pTake = followSuitNonVoidProbability(gs, player, fourthPlayer, gs.leadSuit);
+      const detail = '(geschätzt: ' + (100 * pTake).toFixed(0) + '% Chance, dass der nächste Spieler bedienen kann).';
       if(stochastic) {
         return Math.random() < pTake
           ? finish(largestCards(positiveWinners), 'positive_follow_take', detail)
@@ -1286,11 +1218,10 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     if(positiveWinners.length && losing.length) {
       const thirdPlayer = (player + 1) % 4;
       const fourthPlayer = (player + 2) % 4;
-      const baseTake =
+      const pTake =
         followSuitNonVoidProbability(gs, player, thirdPlayer, gs.leadSuit) *
         followSuitNonVoidProbability(gs, player, fourthPlayer, gs.leadSuit);
-      const pTake = applyOvertakeRiskMultiplier(baseTake, gs, player, [thirdPlayer, fourthPlayer]);
-      const detail = '(geschätzt: ' + (100 * pTake).toFixed(0) + '% Risiko-abgewogene Übernahmechance).';
+      const detail = '(geschätzt: ' + (100 * pTake).toFixed(0) + '% Chance, dass beide späteren Spieler bedienen können).';
       if(stochastic) {
         return Math.random() < pTake
           ? finish(largestCards(positiveWinners), 'positive_follow_take', detail)
