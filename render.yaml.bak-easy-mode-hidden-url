@@ -17,6 +17,5 @@ services:
         value: "60000"
       - key: QUETSCH_REVIEW_MS
         value: "2600"
-      # VITE_ENABLE_EASY_MODE=false hides only the lobby option; ?easyMode=true can still enable Bot-Tipps.
       - key: VITE_ENABLE_EASY_MODE
         value: "true"

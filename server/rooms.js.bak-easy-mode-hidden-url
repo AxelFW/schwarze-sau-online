@@ -23,8 +23,6 @@ const DISCONNECTED_HUMAN_BOT_DELAY_MS = Number(process.env.DISCONNECTED_HUMAN_BO
 const envFlagEnabled = (value) =>
   value === undefined || value === null || String(value).trim().toLowerCase() !== "false";
 
-// This flag controls only whether the Easy Mode checkbox is advertised/shown.
-// Easy Mode itself remains available for hidden URL-based access.
 export const EASY_MODE_FEATURE_ENABLED =
   envFlagEnabled(process.env.ENABLE_EASY_MODE) &&
   envFlagEnabled(process.env.VITE_ENABLE_EASY_MODE) &&
@@ -130,7 +128,7 @@ function defaultRoomSettings(settings = {}) {
   return {
     matchRutschen: normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
     showPenaltyTracker: settings.showPenaltyTracker !== false,
-    easyMode: settings.easyMode === true,
+    easyMode: EASY_MODE_FEATURE_ENABLED && settings.easyMode === true,
   };
 }
 
@@ -640,7 +638,7 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
   const next = defaultRoomSettings(room.settings);
   if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
   if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
-  if (easyMode !== undefined) next.easyMode = easyMode === true;
+  if (easyMode !== undefined) next.easyMode = EASY_MODE_FEATURE_ENABLED && easyMode === true;
   room.settings = next;
   log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
   return publicRoom(room);
