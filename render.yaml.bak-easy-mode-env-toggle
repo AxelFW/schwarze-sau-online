@@ -17,5 +17,3 @@ services:
         value: "60000"
       - key: QUETSCH_REVIEW_MS
         value: "2600"
-      - key: VITE_ENABLE_EASY_MODE
-        value: "true"

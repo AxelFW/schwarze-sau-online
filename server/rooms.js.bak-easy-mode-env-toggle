@@ -20,14 +20,6 @@ const TRICK_DISPLAY_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRIC
 const FINAL_TRICK_DISPLAY_MS = Number(process.env.FINAL_TRICK_DISPLAY_MS || Math.max(TRICK_DISPLAY_MS, 2600));
 const DISCONNECTED_HUMAN_BOT_DELAY_MS = Number(process.env.DISCONNECTED_HUMAN_BOT_DELAY_MS || 20_000);
 
-const envFlagEnabled = (value) =>
-  value === undefined || value === null || String(value).trim().toLowerCase() !== "false";
-
-export const EASY_MODE_FEATURE_ENABLED =
-  envFlagEnabled(process.env.ENABLE_EASY_MODE) &&
-  envFlagEnabled(process.env.VITE_ENABLE_EASY_MODE) &&
-  envFlagEnabled(process.env.VITE_EASY_MODE_ENABLED);
-
 // Wuzz tweak: old German first-name pool for bot seats.
 const BOT_FIRST_NAMES = [
   "Ferdi",
@@ -128,7 +120,7 @@ function defaultRoomSettings(settings = {}) {
   return {
     matchRutschen: normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
     showPenaltyTracker: settings.showPenaltyTracker !== false,
-    easyMode: EASY_MODE_FEATURE_ENABLED && settings.easyMode === true,
+    easyMode: settings.easyMode === true,
   };
 }
 
@@ -638,7 +630,7 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
   const next = defaultRoomSettings(room.settings);
   if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
   if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
-  if (easyMode !== undefined) next.easyMode = EASY_MODE_FEATURE_ENABLED && easyMode === true;
+  if (easyMode !== undefined) next.easyMode = easyMode === true;
   room.settings = next;
   log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
   return publicRoom(room);

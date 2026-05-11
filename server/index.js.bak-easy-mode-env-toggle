@@ -31,7 +31,6 @@ import {
   closeRoomIfNoConnectedHumanPlayers,
   nextDisconnectedBotControlAt,
   pruneExpiredRooms,
-  EASY_MODE_FEATURE_ENABLED,
 } from "./rooms.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -363,7 +362,6 @@ io.on("connection", (socket) => {
   socket.emit("serverHello", {
     socketId: socket.id,
     message: "Mit dem Wuzz-Server verbunden.",
-    features: { easyMode: EASY_MODE_FEATURE_ENABLED },
   });
 
   socket.on("createRoom", (payload = {}, ack) => {

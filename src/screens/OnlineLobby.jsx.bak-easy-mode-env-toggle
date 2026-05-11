@@ -2,13 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { socket } from "../multiplayer/socketClient.js";
 import { SYM, VN, isRed, sameCard, cardPts, unplayedPenaltyCards } from "../../shared/game/cards.js";
 
-const envFlagEnabled = (value) =>
-  value === undefined || value === null || String(value).trim().toLowerCase() !== "false";
-
-const EASY_MODE_FEATURE_ENABLED =
-  envFlagEnabled(import.meta.env.VITE_ENABLE_EASY_MODE) &&
-  envFlagEnabled(import.meta.env.VITE_EASY_MODE_ENABLED);
-
 const page = {
   minHeight: "100vh",
   background:
@@ -751,7 +744,6 @@ export default function OnlineLobby({ onBack }) {
   const [preferredMatchRutschen, setPreferredMatchRutschen] = useState(2);
   const [preferredShowPenaltyTracker, setPreferredShowPenaltyTracker] = useState(true);
   const [preferredEasyMode, setPreferredEasyMode] = useState(false);
-  const [easyModeFeatureEnabled, setEasyModeFeatureEnabled] = useState(EASY_MODE_FEATURE_ENABLED);
   const [joinCode, setJoinCode] = useState("");
   const [room, setRoom] = useState(null);
   const [game, setGame] = useState(null);
@@ -778,13 +770,8 @@ export default function OnlineLobby({ onBack }) {
       setSocketId(null);
     };
 
-    const onHello = (msg = {}) => {
+    const onHello = (msg) => {
       setSocketId(msg.socketId);
-      if (msg.features?.easyMode !== undefined) {
-        const enabled = Boolean(msg.features.easyMode);
-        setEasyModeFeatureEnabled(enabled);
-        if (!enabled) setPreferredEasyMode(false);
-      }
     };
 
     const onRoomUpdated = (nextRoom) => {
@@ -848,7 +835,7 @@ export default function OnlineLobby({ onBack }) {
 
   async function createRoom() {
     setError("");
-    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: easyModeFeatureEnabled && preferredEasyMode } });
+    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode } });
     if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
     if (!res?.ok) setError(res?.message || "Tisch konnte nicht erstellt werden.");
   }
@@ -910,7 +897,7 @@ export default function OnlineLobby({ onBack }) {
     const merged = {
       matchRutschen: nextSettings.matchRutschen ?? preferredMatchRutschen,
       showPenaltyTracker: nextSettings.showPenaltyTracker ?? preferredShowPenaltyTracker,
-      easyMode: easyModeFeatureEnabled ? (nextSettings.easyMode ?? preferredEasyMode) : false,
+      easyMode: nextSettings.easyMode ?? preferredEasyMode,
     };
     setPreferredMatchRutschen(merged.matchRutschen);
     setPreferredShowPenaltyTracker(merged.showPenaltyTracker);
@@ -931,7 +918,7 @@ export default function OnlineLobby({ onBack }) {
 
   async function startSoloGame() {
     setError("");
-    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: easyModeFeatureEnabled && preferredEasyMode } });
+    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode } });
     if (!created?.ok) {
       setError(created?.message || "Solo-Spiel konnte nicht erstellt werden.");
       return;
@@ -1015,12 +1002,10 @@ export default function OnlineLobby({ onBack }) {
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
               </label>
-              {easyModeFeatureEnabled && (
-                <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                  <input type="checkbox" checked={room?.settings?.easyMode ?? preferredEasyMode} onChange={(e) => { setPreferredEasyMode(e.target.checked); if (room) updateRoomSettings({ easyMode: e.target.checked }); }} />
-                  Einfacher Modus: Bot-Tipps anzeigen
-                </label>
-              )}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                <input type="checkbox" checked={room?.settings?.easyMode ?? preferredEasyMode} onChange={(e) => { setPreferredEasyMode(e.target.checked); if (room) updateRoomSettings({ easyMode: e.target.checked }); }} />
+                Einfacher Modus: Bot-Tipps anzeigen
+              </label>
             </div>
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -1100,12 +1085,10 @@ export default function OnlineLobby({ onBack }) {
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
               </label>
-              {easyModeFeatureEnabled && (
-                <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                  <input type="checkbox" checked={room?.settings?.easyMode ?? preferredEasyMode} onChange={(e) => { setPreferredEasyMode(e.target.checked); if (room) updateRoomSettings({ easyMode: e.target.checked }); }} />
-                  Einfacher Modus: Bot-Tipps anzeigen
-                </label>
-              )}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                <input type="checkbox" checked={room?.settings?.easyMode ?? preferredEasyMode} onChange={(e) => { setPreferredEasyMode(e.target.checked); if (room) updateRoomSettings({ easyMode: e.target.checked }); }} />
+                Einfacher Modus: Bot-Tipps anzeigen
+              </label>
             </div>
                 </div>
               )}
