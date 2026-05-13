@@ -7,240 +7,93 @@ import {
 // prepare suits with A, and create cheap C/D voids when possible.
 export const heuristicQuetschPick = hand => {
   const selected = [];
-  const has = c => hand.some(x => sameCard(x, c));
-  const selectedHas = c => selected.some(x => sameCard(x, c));
-  const cardsOfSuitLocal = s => [...hand].filter(c => c.s === s).sort((a,b) => a.v - b.v);
-  const handSignature = [...hand].map(cardKey).sort().join('|');
+  const has = c => hand.some(x => sameCard(x,c));
+  const cardsOfSuit = s => [...hand].filter(c=>c.s===s).sort((a,b)=>a.v-b.v);
+  const protectedLow = c => ['H','D','C'].includes(c.s) && c.v>=2 && c.v<=4;
+  const sideSuitAce = c => (c.s==='C' || c.s==='D') && c.v===14;
 
-  // Stable pseudo-randomness: unclear equal-priority choices vary across hands,
-  // but Easy-Mode quetsch suggestions do not flicker while the same hand is shown.
-  const tieNoise = (card, salt = '') => {
-    const str = handSignature + '|' + salt + '|' + cardKey(card);
-    let h = 2166136261;
-    for(let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return (h >>> 0) / 4294967296;
-  };
+  const spades = cardsOfSuit('S');
+  const otherSpades = spades.filter(c=>!sameCard(c, QUEEN_SPADES));
+  const spadeEmergency = has(QUEEN_SPADES) && otherSpades.length < 2;
+  const highSpadeEmergency = !has(QUEEN_SPADES) &&
+    spades.some(c=>c.v===13 || c.v===14) &&
+    spades.filter(c=>c.v<12).length < 2;
 
-  const add = c => {
-    if(selected.length >= 3 || !c || !has(c) || selectedHas(c)) return false;
+  const hearts = cardsOfSuit('H');
+  const smallHearts = hearts.filter(c=>c.v<7);
+  const highHearts = hearts.filter(c=>c.v>=11).sort((a,b)=>b.v-a.v);
+  const heartEmergency = highHearts.length > 0 && smallHearts.length===0;
+
+  // Side-suit aces are usually safe-trick assets.  Only emergency structures
+  // are allowed to spend A♣/A♦ freely during quetsch.
+  const emergencyMode = spadeEmergency || highSpadeEmergency || heartEmergency;
+
+  const add = (c, allowProtected=false, allowSideAce=false) => {
+    if(selected.length>=3 || !has(c) || selected.some(x=>sameCard(x,c))) return;
+    if(protectedLow(c) && !allowProtected) return;
+    if(sideSuitAce(c) && !allowSideAce && !emergencyMode) return;
     selected.push(c);
-    return true;
   };
-  const remainingCandidates = cards => (cards || [])
-    .filter(c => c && has(c) && !selectedHas(c));
-  const addRanked = (cards, salt, scoreFn = c => c.v, limit = 3) => {
-    const ranked = remainingCandidates(cards)
-      .map(card => ({card, score: scoreFn(card), noise: tieNoise(card, salt)}))
-      .sort((a,b) => b.score - a.score || a.noise - b.noise);
-    for(const x of ranked) {
-      if(selected.length >= Math.min(3, limit)) break;
-      add(x.card);
-    }
-  };
-  const addUntilFull = (cards, salt, scoreFn = c => c.v) => {
-    const ranked = remainingCandidates(cards)
-      .map(card => ({card, score: scoreFn(card), noise: tieNoise(card, salt)}))
-      .sort((a,b) => b.score - a.score || a.noise - b.noise);
-    for(const x of ranked) {
-      if(selected.length >= 3) break;
-      add(x.card);
-    }
+  const addMany = (cards, allowProtected=false, allowSideAce=false) => {
+    for(const c of cards){ add(c, allowProtected, allowSideAce); if(selected.length>=3) break; }
   };
 
-  const spades = cardsOfSuitLocal('S');
-  const hearts = cardsOfSuitLocal('H');
-  const hasQSpades = has(QUEEN_SPADES);
-  const highSpades = spades.filter(c => c.v === 13 || c.v === 14).sort((a,b) => b.v - a.v);
-  const lowSpadesBelowQueen = spades.filter(c => c.v < 12);
-  const otherSpades = spades.filter(c => !sameCard(c, QUEEN_SPADES));
-
-  const lowHearts = hearts.filter(c => c.v >= 2 && c.v <= 5);
-  const softLowHearts = hearts.filter(c => c.v >= 6 && c.v <= 7);
-  const mediumHearts = hearts.filter(c => c.v >= 8 && c.v <= 10);
-  const highHearts = hearts.filter(c => c.v >= 11).sort((a,b) => b.v - a.v);
-  const heartLowMediumCover = lowHearts.length + softLowHearts.length + mediumHearts.length;
-  const heartEarlyCover = lowHearts.length + softLowHearts.length;
-
-  const minorCards = ['C','D'].flatMap(s => cardsOfSuitLocal(s));
-  const minorSuitCount = s => cardsOfSuitLocal(s).length;
-  const minorSmallCount = s => cardsOfSuitLocal(s).filter(c => c.v <= 6).length;
-  const minorHasAce = s => cardsOfSuitLocal(s).some(c => c.v === 14);
-  const minorHasKing = s => cardsOfSuitLocal(s).some(c => c.v === 13);
-  const lowestSmallMinor = s => cardsOfSuitLocal(s).filter(c => c.v <= 6).sort((a,b) => a.v - b.v)[0] ?? null;
-
-  // A usable exit is approximated as an already blank suit or a short C/D suit
-  // that can plausibly be blanked without giving away an ace.  This is only a
-  // threshold signal for ♠Q handling, not a command to force a void.
-  const hasExit = ['C','D','H'].some(s => cardsOfSuitLocal(s).length === 0) ||
-    ['C','D'].some(s => {
-      const suitCards = cardsOfSuitLocal(s);
-      return suitCards.length > 0 && suitCards.length <= 3 && !suitCards.some(c => c.v === 14);
-    });
-
-  const toxicWuzzHighSpadeCluster =
-    hasQSpades && highSpades.length > 0 && spades.length < 4;
-  const weakQSpades =
-    hasQSpades && !toxicWuzzHighSpadeCluster && otherSpades.length < (hasExit ? 2 : 3);
-  const noWuzzHighSpadeTrap =
-    !hasQSpades && highSpades.length > 0 && lowSpadesBelowQueen.length < 2;
-  const unprotectedHighHearts =
-    highHearts.length > 0 && (heartEarlyCover === 0 || (highHearts.length >= 2 && heartLowMediumCover <= 1));
-  const lightProtectedHighHearts =
-    highHearts.length > 0 && !unprotectedHighHearts && heartLowMediumCover <= 2;
-
-  const seriousDanger = toxicWuzzHighSpadeCluster || weakQSpades || noWuzzHighSpadeTrap || unprotectedHighHearts;
-
-  // 1. Emergency bucket.
-  // ♠Q with ♠A/♠K and fewer than four total spades is especially toxic: pass
-  // ♠Q and every held ♠A/♠K before considering normal shape rules.
-  if(toxicWuzzHighSpadeCluster) {
+  if(spadeEmergency) {
     add(QUEEN_SPADES);
-    addRanked(highSpades, 'toxic-wuzz-high-spades', c => c.v);
-  } else if(weakQSpades) {
-    add(QUEEN_SPADES);
+    addMany(otherSpades.filter(c=>c.v===13||c.v===14).sort((a,b)=>b.v-a.v));
   }
 
-  // No ♠Q: with fewer than two low spades below the queen, ♠A/♠K are trap
-  // cards and should be passed with high emergency priority.
-  if(noWuzzHighSpadeTrap) {
-    addRanked(highSpades, 'no-wuzz-high-spade-trap', c => c.v);
+  if(heartEmergency) addMany(highHearts);
+
+  for(const s of ['C','D']) {
+    if(selected.length>=3) break;
+    if(!has({s,v:14})) continue;
+    const same = cardsOfSuit(s).filter(c=>c.v!==14 && !selected.some(x=>sameCard(x,c)));
+    const groups = [
+      same.filter(c=>c.v>=7&&c.v<=10).sort((a,b)=>a.v-b.v),
+      same.filter(c=>c.v>=5&&c.v<=6).sort((a,b)=>a.v-b.v),
+      same.filter(c=>c.v>=11&&c.v<=13).sort((a,b)=>b.v-a.v),
+    ];
+    for(const g of groups) { if(g.length) { add(g[0]); break; } }
   }
 
-  // High hearts are emergency only when unprotected.  With enough lower hearts,
-  // they are not automatically junk.
-  if(unprotectedHighHearts) {
-    addRanked(highHearts, 'unprotected-high-hearts', c => c.v);
-  }
+  const voidOptions = [];
+  for(const s of ['C','D']) {
+    const remaining = cardsOfSuit(s).filter(c=>!selected.some(x=>sameCard(x,c)));
 
-  if(selected.length >= 3) return selected.slice(0,3);
+    // Do not create a cheap C/D void by passing away A♣/A♦ in normal hands.
+    // The ace is a control card; keep it unless the hand is in emergency mode.
+    if(!emergencyMode && remaining.some(sideSuitAce)) continue;
 
-  // 2. Good Quetsch bucket: conditional high hearts, surplus high spade, and
-  // C/D structure cards.  C/D suit choice is danger-aware: under real danger,
-  // prefer cards from the shorter minor suit as a path toward future dumps.
-  const good = [];
-
-  // If the hand has two small spades and both ♠K/♠A without ♠Q, pass ♠A as a
-  // controlled de-risking move while keeping the rest of the spade structure.
-  if(!hasQSpades && lowSpadesBelowQueen.length >= 2 &&
-     highSpades.some(c => c.v === 14) && highSpades.some(c => c.v === 13) &&
-     spades.length === 4) {
-    good.push({card: highSpades.find(c => c.v === 14), base: 95, salt: 'two-low-two-high-spades'});
-  }
-
-  if(lightProtectedHighHearts) {
-    for(const c of highHearts) good.push({card: c, base: 78 + c.v / 10, salt: 'light-protected-high-hearts'});
-  }
-
-  const minorStructuralScore = card => {
-    if(card.s !== 'C' && card.s !== 'D') return -999;
-    const s = card.s;
-    const suitCards = cardsOfSuitLocal(s);
-    const count = suitCards.length;
-    const smallCount = minorSmallCount(s);
-    const hasA = minorHasAce(s);
-    const hasK = minorHasKing(s);
-    const supportSmall = lowestSmallMinor(s);
-
-    // A♣/A♦ are preserved unless we are forced very late by fallback.
-    if(card.v === 14) return -500;
-
-    // K♣/K♦ are usually control cards.  When we have the king without the ace,
-    // prefer passing surplus smaller/middle cards while keeping K + one small.
-    if(card.v === 13 && hasK && !hasA) return supportSmall ? -220 : -80;
-
-    let score = 0;
-    if(card.v >= 7 && card.v <= 12) score += 64;
-    else if(card.v >= 5 && card.v <= 6) score += 28;
-    else score += 8;
-
-    // With A♣/A♦, pass support cards rather than the ace where possible.
-    if(hasA) score += 26;
-
-    // With K♣/K♦ and no ace, keep the king and one small support card if
-    // possible; pass the surplus cards.  This gives at least one such card a
-    // real chance to enter the good bucket.
-    if(hasK && !hasA) {
-      if(supportSmall && sameCard(card, supportSmall)) score -= 45;
-      else score += 30;
+    if(remaining.length && remaining.length <= 3-selected.length && !remaining.some(protectedLow)) {
+      const avg = remaining.reduce((a,c)=>a+c.v,0)/remaining.length;
+      voidOptions.push({n:remaining.length, avg, cards:remaining});
     }
-
-    // Medium chains like 6-9: when passing from the chain, prefer the higher
-    // end and preserve lower exits.
-    const hasLowerNeighbor = suitCards.some(c => c.v === card.v - 1);
-    const hasHigherNeighbor = suitCards.some(c => c.v === card.v + 1);
-    if(hasLowerNeighbor || hasHigherNeighbor) score += Math.max(0, card.v - 5) * 1.5;
-
-    // Prefer suits with fewer low cards; they have weaker safety structure.
-    score += Math.max(0, 3 - smallCount) * 5;
-
-    // Under danger, use C/D candidate choice as a void/exit decider.
-    if(seriousDanger) score += Math.max(0, 5 - count) * 9;
-
-    // Mild high-card pressure inside the same bucket.
-    score += card.v / 10;
-    return score;
-  };
-
-  for(const c of minorCards) {
-    const score = minorStructuralScore(c);
-    if(score >= 58) good.push({card: c, base: score, salt: 'minor-good-structure'});
   }
+  voidOptions.sort((a,b)=>a.n-b.n || b.avg-a.avg);
+  if(voidOptions.length) addMany(voidOptions[0].cards.sort((a,b)=>b.v-a.v), false, emergencyMode);
 
-  addUntilFull(good.map(x => x.card), 'good-quetsch-bucket', c => {
-    const entry = good.find(x => sameCard(x.card, c));
-    return entry ? entry.base : 0;
-  });
-
-  if(selected.length >= 3) return selected.slice(0,3);
-
-  // 3. Filler bucket.  Medium C/D are normal filler; ♥8-♥10 are okay only
-  // when no ♥2-♥5 are present; ♥6-♥7 are last-resort filler, not priority.
-  const filler = [];
-  for(const c of minorCards) {
-    const score = minorStructuralScore(c);
-    if(score > -100) filler.push({card: c, base: score, salt: 'minor-filler'});
-  }
-
-  if(lowHearts.length === 0) {
-    for(const c of mediumHearts) filler.push({card: c, base: 42 + c.v / 10, salt: 'medium-hearts-no-low-hearts'});
-  }
-  for(const c of softLowHearts) filler.push({card: c, base: 12 + c.v / 10, salt: 'soft-low-heart-last-resort'});
-
-  // Well-protected high hearts are not preferred, but they can fill if the
-  // alternatives are worse than touching low hearts or C/D aces/kings.
-  if(!unprotectedHighHearts && !lightProtectedHighHearts) {
-    for(const c of highHearts) filler.push({card: c, base: 18 + c.v / 10, salt: 'well-protected-high-heart-filler'});
-  }
-
-  addUntilFull(filler.map(x => x.card), 'filler-quetsch-bucket', c => {
-    const entry = filler.find(x => sameCard(x.card, c));
-    return entry ? entry.base : 0;
-  });
-
-  if(selected.length >= 3) return selected.slice(0,3);
-
-  // 4. Forced fallback / avoid bucket.  This is only reached for awkward hands.
-  // It still tries to avoid ♥2-♥5, C/D aces, protected C/D kings, and needed
-  // spade guards as long as anything more disposable exists.
   const fallbackScore = c => {
-    if(selectedHas(c)) return -9999;
-    if(sameCard(c, QUEEN_SPADES)) return 900;
-    if(c.s === 'S' && (c.v === 14 || c.v === 13)) return 650 + c.v;
-    if(c.s === 'S' && hasQSpades && c.v < 12) return -120 + c.v;
-    if(c.s === 'H' && c.v >= 11) return 360 + c.v;
-    if(c.s === 'H' && c.v >= 8 && c.v <= 10) return lowHearts.length === 0 ? 210 + c.v : 70 + c.v;
-    if(c.s === 'H' && c.v >= 6 && c.v <= 7) return 20 + c.v;
-    if(c.s === 'H' && c.v <= 5) return -260 + c.v;
-    if((c.s === 'C' || c.s === 'D') && c.v === 14) return seriousDanger ? -40 : -420;
-    if((c.s === 'C' || c.s === 'D') && c.v === 13 && minorHasKing(c.s) && !minorHasAce(c.s) && lowestSmallMinor(c.s)) return -180;
-    if(c.s === 'C' || c.s === 'D') return minorStructuralScore(c);
+    if(sameCard(c, QUEEN_SPADES)) return 1000;
+    if(c.s==='S' && (c.v===14||c.v===13)) return 800+c.v;
+    if(c.s==='H' && c.v>=11) return 700+c.v;
+    if(c.s==='H') return 300+c.v;
+    if((c.s==='C'||c.s==='D') && c.v>=11) return 200+c.v;
     return c.v;
   };
 
-  addUntilFull([...hand], 'forced-avoid-fallback', fallbackScore);
+  const remainingByFallback = () =>
+    [...hand].filter(c=>!selected.some(x=>sameCard(x,c))).sort((a,b)=>fallbackScore(b)-fallbackScore(a));
+
+  // Normal fallback still preserves low safety cards and side-suit aces.
+  addMany(remainingByFallback().filter(c=>!protectedLow(c)));
+
+  // If needed, spend protected lows before spending a preserved side-suit ace.
+  addMany(remainingByFallback(), true);
+
+  // Absolute last resort: always return exactly three legal cards.
+  addMany(remainingByFallback(), true, true);
+
   return selected.slice(0,3);
 };
 
