@@ -890,53 +890,6 @@ const voidRiskyWinningLead = (card, gs, player) =>
   ) ||
   quetschSuspiciousWinningLead(card, gs, player);
 
-const allOpponentsKnownVoidInSuit = (gs, player, suit) =>
-  [1, 2, 3].every(off => knownVoidInSuit(gs, (player + off) % 4, suit));
-
-const aceAlreadyPlayedInSuit = (gs, suit) =>
-  [...completedCards(gs), ...trickCards(gs)].some(c => c?.s === suit && c?.v === 14);
-
-const clearlyBadLeadAlternative = (card, gs, player) => {
-  if(!card || lowNegativePressureMode(gs) || harvestModeActive(gs, player)) return false;
-
-  // Strongest case: everyone else is known void in this suit, so our lead is
-  // effectively certain to keep the trick while opponents can dump remaining
-  // penalty cards.  In that case, avoiding heart exposure at all costs can be
-  // worse than leading a low heart that exposes a high heart still on hand.
-  if(allOpponentsKnownVoidInSuit(gs, player, card.s) && projectedLeadNetFloor(card, gs, player) <= 0) {
-    return true;
-  }
-
-  // General known-void / quetsch-suspicion risk: only classify it as clearly
-  // bad when the pessimistic projected net is non-positive.
-  return voidRiskyWinningLead(card, gs, player) && projectedLeadNetFloor(card, gs, player) <= 0;
-};
-
-const shouldKeepRiskyHeartsWhenAlternativesAreWorse = (riskyHearts, alternatives, gs, player) => {
-  if(!riskyHearts?.length) return false;
-  if(!alternatives?.length) return false;
-  return alternatives.every(c => c.s !== 'H' && clearlyBadLeadAlternative(c, gs, player));
-};
-
-const protectMinorKingLeadCandidates = (cards, gs, player) => {
-  if(!cards.length) return cards;
-  const hand = gs.hands[player] || [];
-  const shouldProtectKing = card => {
-    if(!(card.s === 'C' || card.s === 'D') || card.v !== 13) return false;
-    const sameSuitHand = hand.filter(c => c.s === card.s);
-
-    // The rule only applies while the ace is still live outside.  If we hold
-    // the ace ourselves, or if it has already been played, the king is no
-    // longer protected by avoiding the lead.
-    if(sameSuitHand.some(c => c.v === 14)) return false;
-    if(aceAlreadyPlayedInSuit(gs, card.s)) return false;
-
-    return cards.some(c => c.s === card.s && c.v < 13);
-  };
-  const filtered = cards.filter(c => !shouldProtectKing(c));
-  return filtered.length ? filtered : cards;
-};
-
 const leastBadVoidRiskLeadCandidates = (cards, gs, player) => {
   if(!cards.length) return [];
   const scored = cards.map(c => {
@@ -1435,14 +1388,7 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
       const riskyHearts = hearts.filter(c => heartLeadRisk(c, gs, player));
       if(riskyHearts.length) {
         const filtered = candidates.filter(c => !riskyHearts.some(r => sameCard(r, c)));
-        const keepRiskyHearts = shouldKeepRiskyHeartsWhenAlternativesAreWorse(riskyHearts, filtered, gs, player);
-        if(filtered.length && keepRiskyHearts) {
-          return finish(
-            heartLeadPreferenceCandidates(hearts, gs, player),
-            'risky_heart_lead',
-            '(Alternativen wären klare Abwurf-Fallen.)'
-          );
-        } else if(filtered.length) {
+        if(filtered.length) {
           candidates = filtered;
         } else if(protectedSpadeFallback.length) {
           return finish(protectedSpadeFallback, 'risky_heart_lead');
@@ -1477,12 +1423,6 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
         return finish(protectedSpadeFallback, 'negative_history_lead');
       }
     }
-
-    // H_K1: If we hold K♣/K♦ without the same-suit ace and also have a
-    // smaller card of that suit, do not lead the king while the ace is still
-    // live outside and a lower same-suit card can preserve it as a future
-    // positive-trick winner.
-    candidates = protectMinorKingLeadCandidates(candidates, gs, player);
 
     // H7: Prefer safe ♣A / ♦A openers after risk filters.  The serious-danger
     // short-suit idea is now handled inside midgameLeadCandidates, after this
