@@ -98,17 +98,6 @@ export const heuristicQuetschPick = hand => {
 };
 
 export const botQuetschPick = heuristicQuetschPick;
-export const recommendHeuristicQuetschCards = hand => {
-  const cards = heuristicQuetschPick(hand);
-  const reason = 'Easy Mode: Der Bot würde diese drei Karten quetschen. Er priorisiert gefährliche Strafkarten, behält niedrige Schutzkarten und wirft ♣/♦-Asse nicht nur für einen Void weg.';
-  return {
-    cards,
-    rule: 'quetsch_suggestion',
-    reason,
-    reasonByCard: Object.fromEntries(cards.map(c => [cardKey(c), reason])),
-  };
-};
-
 
 // Local heuristic play agent.
 // Ported from the updated Python `HeuristicOpponent` used in training. It keeps

@@ -6,7 +6,7 @@ import {
   clearFinishedTrick,
   getValidCards,
 } from "../shared/game/engine.js";
-import { heuristicQuetschPick, chooseHeuristicCard, recommendHeuristicCards, recommendHeuristicQuetschCards } from "../shared/game/heuristicBot.js";
+import { heuristicQuetschPick, chooseHeuristicCard, recommendHeuristicCards } from "../shared/game/heuristicBot.js";
 import { sameCard, sortHand, cardPts } from "../shared/game/cards.js";
 
 const rooms = new Map();
@@ -744,20 +744,9 @@ export function getPrivateGameView(room, socketId) {
     };
     if (!suggestion.cards.length) suggestion = null;
   }
-  let quetschSuggestion = null;
   const pendingQuetschSeats = game.phase === "quetsch" ? pendingHumanQuetschSeats(room) : [];
   const quetschSubmitted = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex]);
   const quetschReceived = visibleQuetschReceivedForSeat(game, seatIndex);
-  if (settings.easyMode && seatIndex !== null && game.phase === "quetsch" && !quetschSubmitted && hand.length) {
-    const rec = recommendHeuristicQuetschCards(hand);
-    quetschSuggestion = {
-      cards: Array.isArray(rec?.cards) ? rec.cards.filter((card) => hand.some((own) => sameCard(own, card))) : [],
-      rule: rec?.rule || "quetsch_suggestion",
-      reason: rec?.reason || "Der Bot empfiehlt diese drei Karten nach seiner normalen Quetsch-Logik.",
-      reasonByCard: rec?.reasonByCard || {},
-    };
-    if (!quetschSuggestion.cards.length) quetschSuggestion = null;
-  }
   const runScores = game.scores.map((score, i) => score + (gs.roundPts?.[i] || 0));
   return {
     phase: game.phase,
@@ -768,7 +757,6 @@ export function getPrivateGameView(room, socketId) {
     showPenaltyTracker: settings.showPenaltyTracker,
     easyMode: settings.easyMode,
     suggestion,
-    quetschSuggestion,
     names,
     seatTypes,
     dealer: gs.dealer,

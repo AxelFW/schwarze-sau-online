@@ -467,8 +467,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
 
   const selectedHas = (card) => selected.some((c) => sameCard(c, card));
   const validHas = (card) => game.validCards.some((c) => sameCard(c, card));
-  const quetschSuggestion = game.quetschSuggestion || null;
-  const quetschSuggestedHas = (card) => Boolean(quetschSuggestion?.cards?.some((c) => sameCard(c, card)));
   const suggestedHas = (card) => Array.isArray(game.suggestion?.cards) && game.suggestion.cards.some((c) => sameCard(c, card));
 
   function toggleQuetsch(card) {
@@ -603,15 +601,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
           ) : game.quetschNeeded ? (
             <>
               <h3 style={{ color: "#f4c430", textAlign: "center" }}>Quetsch: 3 Karten an {game.names[game.quetschTarget]}</h3>
-              {quetschSuggestion?.cards?.length ? (
-                <div style={{ margin: "8px 0 12px", padding: 10, borderRadius: 12, background: "rgba(244,196,48,0.12)", border: "1px solid rgba(244,196,48,0.35)" }}>
-                  <div style={{ fontWeight: "bold", marginBottom: 6 }}>Bot-Vorschlag für den Quetsch</div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                    {quetschSuggestion.cards.map((card) => <CardFace key={cardId(card)} card={card} highlighted size="sm" />)}
-                  </div>
-                  <div style={{ opacity: 0.85, fontSize: 13 }}>{quetschSuggestion.reason}</div>
-                </div>
-              ) : null}
               <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 16 }}>
                 {[0, 1, 2].map((i) => (
                   <div key={i} style={{ width: 50, height: 70, borderRadius: 8, border: `2px solid ${selected[i] ? "#f4c430" : "rgba(255,255,255,0.14)"}`, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.04)" }}>
@@ -624,7 +613,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   <CardFace
                     key={cardId(card)}
                     card={card}
-                    selected={selectedHas(card)} highlighted={quetschSuggestedHas(card)}
+                    selected={selectedHas(card)}
                     highlighted={!selectedHas(card) && selected.length < 3}
                     onClick={() => toggleQuetsch(card)}
                   />
