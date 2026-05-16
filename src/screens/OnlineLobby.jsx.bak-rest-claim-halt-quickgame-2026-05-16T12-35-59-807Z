@@ -446,7 +446,7 @@ function CommentControls({ room, game, setError }) {
 }
 
 
-function RestClaimRevealPanel({ game, onHalt, onWeiter }) {
+function RestClaimRevealPanel({ game }) {
   const reveal = game.restClaimReveal;
   if (!reveal) return null;
   const activeIndex = Math.max(0, Math.min(Number(reveal.activeIndex || 0), (reveal.tricks?.length || 1) - 1));
@@ -464,18 +464,6 @@ function RestClaimRevealPanel({ game, onHalt, onWeiter }) {
       <div style={{ color: active.pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold", marginTop: 10 }}>
         Dieser Stich geht an {game.names?.[active.winner] || reveal.name}: {active.pts >= 0 ? "+" : ""}{active.pts}
       </div>
-      {game.yourSeat !== null && (
-        <div style={{ marginTop: 10 }}>
-          {reveal.paused ? (
-            <Button onClick={onWeiter} style={{ padding: "7px 13px" }}>Weiter</Button>
-          ) : (
-            <Button onClick={onHalt} style={{ padding: "7px 13px", background: "rgba(255,255,255,0.12)", color: "white" }}>Halt</Button>
-          )}
-          {reveal.paused && (
-            <div style={{ marginTop: 5, color: "rgba(255,255,255,0.45)", fontSize: 12 }}>Restanzeige angehalten.</div>
-          )}
-        </div>
-      )}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start", marginTop: 10 }}>
         {(active.trick || []).map(({ player, card }, idx) => (
           <div key={idx} style={{ width: 72, flex: "0 0 72px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
@@ -718,16 +706,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
     if (!res?.ok) setError(res?.message || "Antwort konnte nicht gesendet werden.");
   }
 
-  async function haltRestClaimReveal() {
-    const res = await emitAck("pauseRestClaimReveal", { roomCode: room.roomCode });
-    if (!res?.ok) setError(res?.message || "Restanzeige konnte nicht angehalten werden.");
-  }
-
-  async function continueRestClaimReveal() {
-    const res = await emitAck("continueRestClaimReveal", { roomCode: room.roomCode });
-    if (!res?.ok) setError(res?.message || "Restanzeige konnte nicht fortgesetzt werden.");
-  }
-
   async function startNextRound() {
     const res = await emitAck("startNextRound", { roomCode: room.roomCode });
     if (!res?.ok) setError(res?.message || "Nächste Rutsche konnte nicht gestartet werden.");
@@ -831,7 +809,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
         </div>
       )}
 
-      {game.phase === "rest_claim_reveal" && <RestClaimRevealPanel game={game} onHalt={haltRestClaimReveal} onWeiter={continueRestClaimReveal} />}
+      {game.phase === "rest_claim_reveal" && <RestClaimRevealPanel game={game} />}
       {game.phase === "rest_claim_pending" && <RestClaimPendingPanel game={game} onRespond={respondRestClaim} />}
 
       {game.phase === "quetsch" && (
@@ -1038,7 +1016,6 @@ export default function OnlineLobby({ onBack }) {
   const [preferredMatchRutschen, setPreferredMatchRutschen] = useState(2);
   const [preferredShowPenaltyTracker, setPreferredShowPenaltyTracker] = useState(true);
   const [preferredEasyMode, setPreferredEasyMode] = useState(INITIAL_EASY_MODE_FROM_URL === true);
-  const [preferredQuickGame, setPreferredQuickGame] = useState(false);
   const [easyModeOptionVisible, setEasyModeOptionVisible] = useState(EASY_MODE_OPTION_VISIBLE);
   const [joinCode, setJoinCode] = useState("");
   const [room, setRoom] = useState(null);
@@ -1136,7 +1113,7 @@ export default function OnlineLobby({ onBack }) {
 
   async function createRoom() {
     setError("");
-    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode, quickGame: preferredQuickGame } });
+    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode } });
     if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
     if (!res?.ok) setError(res?.message || "Tisch konnte nicht erstellt werden.");
   }
@@ -1199,12 +1176,10 @@ export default function OnlineLobby({ onBack }) {
       matchRutschen: nextSettings.matchRutschen ?? preferredMatchRutschen,
       showPenaltyTracker: nextSettings.showPenaltyTracker ?? preferredShowPenaltyTracker,
       easyMode: nextSettings.easyMode ?? preferredEasyMode,
-      quickGame: nextSettings.quickGame ?? preferredQuickGame,
     };
     setPreferredMatchRutschen(merged.matchRutschen);
     setPreferredShowPenaltyTracker(merged.showPenaltyTracker);
     setPreferredEasyMode(merged.easyMode);
-    setPreferredQuickGame(merged.quickGame);
     if (!room) return;
     const res = await emitAck("setRoomSettings", { roomCode: room.roomCode, ...merged });
     if (!res?.ok) setError(res?.message || "Einstellungen konnten nicht geändert werden.");
@@ -1221,7 +1196,7 @@ export default function OnlineLobby({ onBack }) {
 
   async function startSoloGame() {
     setError("");
-    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode, quickGame: preferredQuickGame } });
+    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode } });
     if (!created?.ok) {
       setError(created?.message || "Solo-Spiel konnte nicht erstellt werden.");
       return;
@@ -1304,10 +1279,6 @@ export default function OnlineLobby({ onBack }) {
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                <input type="checkbox" checked={room?.settings?.quickGame ?? preferredQuickGame} onChange={(e) => { setPreferredQuickGame(e.target.checked); if (room) updateRoomSettings({ quickGame: e.target.checked }); }} />
-                Schnelles Spiel: Stiche kürzer anzeigen
               </label>
               {easyModeOptionVisible && (
                 <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
@@ -1393,10 +1364,6 @@ export default function OnlineLobby({ onBack }) {
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                <input type="checkbox" checked={room?.settings?.quickGame ?? preferredQuickGame} onChange={(e) => { setPreferredQuickGame(e.target.checked); if (room) updateRoomSettings({ quickGame: e.target.checked }); }} />
-                Schnelles Spiel: Stiche kürzer anzeigen
               </label>
               {easyModeOptionVisible && (
                 <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>

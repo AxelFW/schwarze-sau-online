@@ -19,10 +19,8 @@ const QUETSCH_REVIEW_MS = Number(process.env.QUETSCH_REVIEW_MS || 2600);
 const TRICK_DISPLAY_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRICK_REVIEW_MS || 1400);
 const FINAL_TRICK_DISPLAY_MS = Number(process.env.FINAL_TRICK_DISPLAY_MS || Math.max(TRICK_DISPLAY_MS, 2600));
 const DISCONNECTED_HUMAN_BOT_DELAY_MS = Number(process.env.DISCONNECTED_HUMAN_BOT_DELAY_MS || 20_000);
-const REST_CLAIM_MIN_TRICKS = 2;
 const REST_CLAIM_MAX_TRICKS = 4;
 const REST_CLAIM_REVEAL_MS = Number(process.env.REST_CLAIM_REVEAL_MS || 1250);
-const QUICK_GAME_DELAY_FACTOR = 0.62;
 const COMMENT_TTL_MS = 5_000;
 const COMMENT_MAX_LENGTH = 80;
 const COMMENT_CHOICES = [
@@ -144,20 +142,7 @@ function defaultRoomSettings(settings = {}) {
     matchRutschen: normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
     showPenaltyTracker: settings.showPenaltyTracker !== false,
     easyMode: settings.easyMode === true,
-    quickGame: settings.quickGame === true,
   };
-}
-
-function quickGameDelayMs(room, normalMs) {
-  const base = Number(normalMs);
-  if (!Number.isFinite(base)) return normalMs;
-  const settings = defaultRoomSettings(room?.settings);
-  if (!settings.quickGame) return Math.max(0, base);
-  return Math.max(450, Math.round(base * QUICK_GAME_DELAY_FACTOR));
-}
-
-function restClaimRevealDelayMs(room) {
-  return quickGameDelayMs(room, REST_CLAIM_REVEAL_MS);
 }
 
 export function publicRoom(room) {
@@ -536,7 +521,7 @@ function applyOnlineCard(room, player, card) {
   if (next._trickJustFinished) {
     maybeAddBotCommentForFinishedTrick(room, gsBefore, next);
     const isFinalTrick = next.tricksPlayed >= 13;
-    const reviewDelayMs = quickGameDelayMs(room, isFinalTrick ? FINAL_TRICK_DISPLAY_MS : TRICK_DISPLAY_MS);
+    const reviewDelayMs = isFinalTrick ? FINAL_TRICK_DISPLAY_MS : TRICK_DISPLAY_MS;
     game.lastTrick = {
       winner: next._trickWinner,
       pts: next._trickNet,
@@ -574,7 +559,7 @@ function restClaimBaseLegal(game, claimantSeat) {
   if (!gs || gs.currentPlayer !== claimantSeat) return false;
   if (Array.isArray(gs.trick) && gs.trick.length > 0) return false;
   const claimantCards = Array.isArray(gs.hands?.[claimantSeat]) ? gs.hands[claimantSeat].length : 0;
-  if (claimantCards < REST_CLAIM_MIN_TRICKS || claimantCards > REST_CLAIM_MAX_TRICKS) return false;
+  if (claimantCards <= 0 || claimantCards > REST_CLAIM_MAX_TRICKS) return false;
   // Empty-trick endgames should have equal hand sizes. If the state is unusual,
   // stay conservative and do not offer an automatic claim.
   if (!gs.hands?.every((hand) => Array.isArray(hand) && hand.length === claimantCards)) return false;
@@ -759,37 +744,19 @@ function finishRestClaimReveal(room) {
   return true;
 }
 
-function stepRestClaimRevealForward(room) {
+function advanceRestClaimReveal(room) {
   const game = room.game;
   if (!game || game.phase !== "rest_claim_reveal" || !game.restClaimReveal) return false;
+  if (Date.now() < (game.restClaimReveal.revealUntil || 0)) return false;
 
   const reveal = game.restClaimReveal;
   if ((reveal.activeIndex || 0) < (reveal.tricks?.length || 1) - 1) {
     reveal.activeIndex = (reveal.activeIndex || 0) + 1;
-    reveal.paused = false;
-    reveal.pausedAt = null;
-    reveal.revealUntil = Date.now() + restClaimRevealDelayMs(room);
+    reveal.revealUntil = Date.now() + REST_CLAIM_REVEAL_MS;
     return true;
   }
 
   return finishRestClaimReveal(room);
-}
-
-function advanceRestClaimReveal(room) {
-  const game = room.game;
-  if (!game || game.phase !== "rest_claim_reveal" || !game.restClaimReveal) return false;
-  if (game.restClaimReveal.paused) return false;
-  if (Date.now() < (game.restClaimReveal.revealUntil || 0)) return false;
-  return stepRestClaimRevealForward(room);
-}
-
-function requireRestClaimRevealPlayer(room, socketId) {
-  const seat = findSeatForSocket(room, socketId);
-  if (!seat) throw new Error("Nur mitspielende Personen können die Restanzeige steuern.");
-  if (room.status !== "playing" || !room.game || room.game.phase !== "rest_claim_reveal" || !room.game.restClaimReveal) {
-    throw new Error("Es läuft gerade keine Restanzeige.");
-  }
-  return seat;
 }
 
 function applyRestClaim(room, claimantSeat, source = "manual", options = {}) {
@@ -830,9 +797,7 @@ function applyRestClaim(room, claimantSeat, source = "manual", options = {}) {
     pts: claimPts,
     source,
     activeIndex: 0,
-    revealUntil: Date.now() + restClaimRevealDelayMs(room),
-    paused: false,
-    pausedAt: null,
+    revealUntil: Date.now() + REST_CLAIM_REVEAL_MS,
     tricks: claimTricks,
   };
   game.lastTrick = claimTricks[0]
@@ -1101,7 +1066,7 @@ export function setSeatOpen({ roomCode, socketId, seat }) {
   return publicRoom(room);
 }
 
-export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker, easyMode, quickGame }) {
+export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker, easyMode }) {
   const room = requireRoom(roomCode);
   assertLobby(room);
   requireHost(room, socketId);
@@ -1109,7 +1074,6 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
   if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
   if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
   if (easyMode !== undefined) next.easyMode = easyMode === true;
-  if (quickGame !== undefined) next.quickGame = quickGame === true;
   room.settings = next;
   log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
   return publicRoom(room);
@@ -1192,29 +1156,6 @@ export function claimRestOnline({ roomCode, socketId }) {
   }
 
   throw new Error("Rest zu mir ist gerade nicht möglich.");
-}
-
-export function pauseRestClaimRevealOnline({ roomCode, socketId }) {
-  const room = requireRoom(roomCode);
-  requireRestClaimRevealPlayer(room, socketId);
-  const reveal = room.game.restClaimReveal;
-  reveal.paused = true;
-  reveal.pausedAt = Date.now();
-  reveal.revealUntil = null;
-  touch(room);
-  log("Restanzeige pausiert", { roomCode: room.roomCode, socketId });
-  return room;
-}
-
-export function continueRestClaimRevealOnline({ roomCode, socketId }) {
-  const room = requireRoom(roomCode);
-  requireRestClaimRevealPlayer(room, socketId);
-  const reveal = room.game.restClaimReveal;
-  if (!reveal.paused) throw new Error("Die Restanzeige ist nicht angehalten.");
-  stepRestClaimRevealForward(room);
-  touch(room);
-  log("Restanzeige fortgesetzt", { roomCode: room.roomCode, socketId });
-  return room;
 }
 
 export function respondRestClaimOnline({ roomCode, socketId, accept }) {
@@ -1354,9 +1295,6 @@ export function getPrivateGameView(room, socketId) {
       ...trick,
       trick: (trick.trick || []).map((play) => ({ player: play.player, card: { ...play.card } })),
     })),
-    paused: Boolean(game.restClaimReveal.paused),
-    pausedAt: game.restClaimReveal.pausedAt || null,
-    revealUntil: game.restClaimReveal.revealUntil || null,
   } : null;
   return {
     phase: game.phase,
@@ -1366,7 +1304,6 @@ export function getPrivateGameView(room, socketId) {
     matchRutschen: game.matchRutschen ?? settings.matchRutschen,
     showPenaltyTracker: settings.showPenaltyTracker,
     easyMode: settings.easyMode,
-    quickGame: settings.quickGame,
     suggestion,
     quetschSuggestion,
     canClaimRest,
