@@ -244,11 +244,8 @@ function automaticAdvanceKey(room) {
   }
 
   if (phase === "trick_done") {
-    const reviewingTrick = game.pendingLastTrick || (game.gs?._trickJustFinished
-      ? { winner: game.gs._trickWinner, trick: game.gs._trickCards }
-      : null);
-    const trickLength = Array.isArray(reviewingTrick?.trick) ? reviewingTrick.trick.length : 0;
-    return "trick_done:" + Number(game.trickReviewUntil || 0) + ":" + (reviewingTrick?.winner ?? "") + ":" + (game.gs?.tricksPlayed ?? "") + ":" + trickLength;
+    const trickLength = Array.isArray(game.lastTrick?.trick) ? game.lastTrick.trick.length : 0;
+    return "trick_done:" + Number(game.trickReviewUntil || 0) + ":" + (game.lastTrick?.winner ?? "") + ":" + (game.gs?.tricksPlayed ?? "") + ":" + trickLength;
   }
 
   if (phase === "rest_claim_reveal") {

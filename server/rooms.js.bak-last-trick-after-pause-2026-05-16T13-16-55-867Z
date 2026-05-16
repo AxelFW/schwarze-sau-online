@@ -286,10 +286,6 @@ function createGameState(dealer, settings = {}) {
     quetschReviewUntil: null,
     currentQuetschSeat: null,
     lastTrick: null,
-    // During the completed-trick pause, keep lastTrick as the previous
-    // trick.  The just-finished trick stays on the table and moves here only
-    // after the pause, so the previous trick display does not jump early.
-    pendingLastTrick: null,
     trickReviewUntil: null,
     lastRound: null,
     lastRestClaim: null,
@@ -380,23 +376,8 @@ function finishTrickReview(room) {
   const game = room.game;
   if (!game || game.phase !== "trick_done") return false;
   if (Date.now() < (game.trickReviewUntil || 0)) return false;
-
-  const reviewedTrick = game.pendingLastTrick || (game.gs?._trickJustFinished
-    ? {
-        winner: game.gs._trickWinner,
-        pts: game.gs._trickNet,
-        trick: game.gs._trickCards,
-        isFinal: game.gs.tricksPlayed >= 13,
-      }
-    : null);
-
   game.trickReviewUntil = null;
-  if (reviewedTrick) {
-    game.lastTrick = { ...reviewedTrick };
-  }
-  game.pendingLastTrick = null;
-
-  if (reviewedTrick?.isFinal) {
+  if (game.lastTrick?.isFinal) {
     finishRound(room);
   } else {
     game.gs = clearFinishedTrick(game.gs);
@@ -560,7 +541,7 @@ function applyOnlineCard(room, player, card) {
     maybeAddBotCommentForFinishedTrick(room, gsBefore, next);
     const isFinalTrick = next.tricksPlayed >= 13;
     const reviewDelayMs = quickGameDelayMs(room, isFinalTrick ? FINAL_TRICK_DISPLAY_MS : TRICK_DISPLAY_MS);
-    game.pendingLastTrick = {
+    game.lastTrick = {
       winner: next._trickWinner,
       pts: next._trickNet,
       trick: next._trickCards,
@@ -777,7 +758,6 @@ function finishRestClaimReveal(room) {
   game.lastTrick = reveal.tricks?.[reveal.tricks.length - 1]
     ? { ...reveal.tricks[reveal.tricks.length - 1], isFinal: true, claimedRest: true }
     : game.lastTrick;
-  game.pendingLastTrick = null;
   game.restClaimReveal = null;
   finishRound(room);
   return true;
@@ -862,7 +842,6 @@ function applyRestClaim(room, claimantSeat, source = "manual", options = {}) {
   game.lastTrick = claimTricks[0]
     ? { ...claimTricks[0], claimedRest: true, remainingTricks, isFinal: claimTricks.length === 1 }
     : null;
-  game.pendingLastTrick = null;
   game.trickReviewUntil = null;
   game.phase = "rest_claim_reveal";
   game.gs = {
@@ -1178,7 +1157,6 @@ export function startNextOnlineRound({ roomCode, socketId }) {
   game.quetschReviewUntil = null;
   game.currentQuetschSeat = null;
   game.lastTrick = null;
-  game.pendingLastTrick = null;
   game.lastRestClaim = null;
   game.restClaimRequest = null;
   game.restClaimReveal = null;
