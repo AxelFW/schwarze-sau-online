@@ -21,9 +21,6 @@ import {
   startNextOnlineRound,
   submitOnlineQuetsch,
   playOnlineCard,
-  claimRestOnline,
-  respondRestClaimOnline,
-  sendOnlineComment,
   getInternalRoom,
   publicRoom,
   getPrivateGameView,
@@ -170,11 +167,11 @@ function roomNeedsAutomaticAdvance(room) {
   if (!room || room.status !== "playing" || !room.game) return false;
   const game = room.game;
   const phase = game.phase;
-  if (phase === "gameover" || phase === "round_done" || phase === "rest_claim_pending") return false;
+  if (phase === "gameover" || phase === "round_done") return false;
 
   // Review phases are automatic: the server has to wake up after the visible
   // review time and transition to the next playable state.
-  if (phase === "quetsch_review" || phase === "trick_done" || phase === "rest_claim_reveal") return true;
+  if (phase === "quetsch_review" || phase === "trick_done") return true;
 
   const publicState = publicRoom(room);
 
@@ -242,11 +239,6 @@ function automaticAdvanceKey(room) {
   if (phase === "trick_done") {
     const trickLength = Array.isArray(game.lastTrick?.trick) ? game.lastTrick.trick.length : 0;
     return "trick_done:" + Number(game.trickReviewUntil || 0) + ":" + (game.lastTrick?.winner ?? "") + ":" + (game.gs?.tricksPlayed ?? "") + ":" + trickLength;
-  }
-
-  if (phase === "rest_claim_reveal") {
-    const reveal = game.restClaimReveal || {};
-    return "rest_claim_reveal:" + Number(reveal.revealUntil || 0) + ":" + Number(reveal.activeIndex || 0) + ":" + Number(reveal.tricks?.length || 0);
   }
 
   return null;
@@ -536,45 +528,6 @@ io.on("connection", (socket) => {
       emitRoomAndGame(room);
       acknowledge(ack, { ok: true });
       scheduleAdvance(room.roomCode, false);
-    } catch (err) {
-      sendError(socket, err.message);
-      acknowledge(ack, { ok: false, message: err.message });
-    }
-  });
-
-
-
-  socket.on("claimRest", (payload = {}, ack) => {
-    try {
-      const room = claimRestOnline({ roomCode: payload.roomCode, socketId: socket.id });
-      emitRoomAndGame(room);
-      acknowledge(ack, { ok: true });
-      scheduleAdvance(room.roomCode, false);
-    } catch (err) {
-      sendError(socket, err.message);
-      acknowledge(ack, { ok: false, message: err.message });
-    }
-  });
-
-
-
-  socket.on("respondRestClaim", (payload = {}, ack) => {
-    try {
-      const room = respondRestClaimOnline({ roomCode: payload.roomCode, socketId: socket.id, accept: payload.accept !== false });
-      emitRoomAndGame(room);
-      acknowledge(ack, { ok: true });
-      scheduleAdvance(room.roomCode, false);
-    } catch (err) {
-      sendError(socket, err.message);
-      acknowledge(ack, { ok: false, message: err.message });
-    }
-  });
-
-  socket.on("sendComment", (payload = {}, ack) => {
-    try {
-      const room = sendOnlineComment({ roomCode: payload.roomCode, socketId: socket.id, text: payload.text });
-      emitRoomAndGame(room);
-      acknowledge(ack, { ok: true });
     } catch (err) {
       sendError(socket, err.message);
       acknowledge(ack, { ok: false, message: err.message });

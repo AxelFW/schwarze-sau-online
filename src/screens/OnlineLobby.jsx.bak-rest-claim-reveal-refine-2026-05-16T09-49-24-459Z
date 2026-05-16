@@ -212,7 +212,7 @@ function cardLabel(card) {
 }
 
 const COMMENT_CHOICES = [
-  "Klassischer Selbstfopp",
+  "Selbstfopp",
   "Treffer - Versenkt!",
   "Oma Stich",
   "Ich liebe Plüssis",
@@ -260,11 +260,11 @@ function ScoreStrip({ game }) {
             <div style={{ color: "#6dbf8a", fontSize: 10.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {game.seatTypes[i] === "human" ? "👤" : "🧠"} {name} {i === game.dealer ? "(G)" : ""}
             </div>
-            <div style={{ fontSize: 21, fontWeight: "bold", color: "#f4c430", lineHeight: 1.12 }}>
-              {total}
+            <div style={{ fontSize: 18, fontWeight: "bold", color: roundPts >= 0 ? "#4ade80" : "#f87171", lineHeight: 1.15 }}>
+              Sp {roundPts >= 0 ? "+" : ""}{roundPts}
             </div>
-            <div style={{ fontSize: 10.5, color: roundPts >= 0 ? "#4ade80" : "#f87171", whiteSpace: "nowrap" }}>
-              Spiel {roundPts >= 0 ? "+" : ""}{roundPts} · {tricks}✦
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", whiteSpace: "nowrap" }}>
+              {tricks}✦ · Gesamt {total}
             </div>
           </div>
         );
@@ -320,190 +320,66 @@ function LastTrickBanner({ game }) {
 }
 
 function CommentBubbles({ game }) {
-  const latest = Array.isArray(game?.comments) && game.comments.length ? game.comments[game.comments.length - 1] : null;
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    if (!latest?.id) return undefined;
-    const createdAt = Number(latest.at || Date.now());
-    const expiresAt = Number(latest.expiresAt || createdAt + 5000);
-    setNow(Date.now());
-    const delay = Math.max(0, expiresAt - Date.now()) + 40;
-    const timer = window.setTimeout(() => setNow(Date.now()), delay);
-    return () => window.clearTimeout(timer);
-  }, [latest?.id, latest?.at, latest?.expiresAt]);
-
-  if (!latest) return null;
-  const createdAt = Number(latest.at || 0);
-  const expiresAt = Number(latest.expiresAt || createdAt + 5000);
-  if (now >= expiresAt) return null;
+  const comments = Array.isArray(game?.comments) ? game.comments : [];
+  if (!comments.length) return null;
 
   return (
-    <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
-      <div
-        style={{
-          maxWidth: 260,
-          padding: "8px 11px",
-          borderRadius: "17px 17px 17px 6px",
-          background: "rgba(255,255,255,0.13)",
-          border: "1px solid rgba(255,255,255,0.2)",
-          boxShadow: "0 4px 10px rgba(0,0,0,0.18)",
-          fontSize: 13,
-          lineHeight: 1.25,
-          textAlign: "left",
-        }}
-        title={game.names?.[latest.seat] || ""}
-      >
-        <span style={{ color: "#6dbf8a", fontSize: 10, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {game.names?.[latest.seat] || ("Platz " + (Number(latest.seat) + 1))}
-        </span>
-        <span>{latest.text}</span>
-      </div>
+    <div style={{ marginTop: 10, display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+      {comments.map((comment, idx) => (
+        <div
+          key={comment.id || (String(comment.seat) + "-" + comment.text + "-" + idx)}
+          style={{
+            maxWidth: 220,
+            padding: "7px 10px",
+            borderRadius: "16px 16px 16px 6px",
+            background: "rgba(255,255,255,0.12)",
+            border: "1px solid rgba(255,255,255,0.18)",
+            boxShadow: "0 4px 10px rgba(0,0,0,0.18)",
+            fontSize: 13,
+            lineHeight: 1.25,
+          }}
+          title={game.names?.[comment.seat] || ""}
+        >
+          <span style={{ color: "#6dbf8a", fontSize: 10, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {game.names?.[comment.seat] || ("Platz " + (Number(comment.seat) + 1))}
+          </span>
+          <span>{comment.text}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
 function CommentControls({ room, game, setError }) {
-  const [customComment, setCustomComment] = useState("");
   if (!room || !game || game.yourSeat === null || game.phase === "gameover") return null;
   const choices = Array.isArray(game.commentChoices) && game.commentChoices.length ? game.commentChoices : COMMENT_CHOICES;
 
   async function sendComment(text) {
     const res = await emitAck("sendComment", { roomCode: room.roomCode, text });
     if (!res?.ok) setError(res?.message || "Spruch konnte nicht gesendet werden.");
-    return res;
-  }
-
-  async function submitCustomComment(event) {
-    event.preventDefault();
-    const text = customComment.trim();
-    if (!text) return;
-    const res = await sendComment(text);
-    if (res?.ok) setCustomComment("");
   }
 
   return (
-    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-      <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-        {choices.map((text) => (
-          <button
-            key={text}
-            type="button"
-            onClick={() => sendComment(text)}
-            style={{
-              border: "1px solid rgba(255,255,255,0.16)",
-              borderRadius: 999,
-              padding: "6px 9px",
-              background: "rgba(255,255,255,0.08)",
-              color: "rgba(255,255,255,0.82)",
-              fontFamily: "Georgia,serif",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            💬 {text}
-          </button>
-        ))}
-      </div>
-      <form onSubmit={submitCustomComment} style={{ display: "flex", justifyContent: "center", gap: 6, width: "min(100%, 420px)" }}>
-        <input
-          value={customComment}
-          onChange={(event) => setCustomComment(event.target.value)}
-          maxLength={80}
-          placeholder="Eigener Spruch ..."
-          style={{
-            flex: 1,
-            minWidth: 0,
-            border: "1px solid rgba(255,255,255,0.16)",
-            borderRadius: 999,
-            padding: "7px 10px",
-            background: "rgba(255,255,255,0.08)",
-            color: "white",
-            fontFamily: "Georgia,serif",
-            fontSize: 12,
-            outline: "none",
-          }}
-        />
+    <div style={{ marginTop: 10, display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+      {choices.map((text) => (
         <button
-          type="submit"
-          disabled={!customComment.trim()}
+          key={text}
+          type="button"
+          onClick={() => sendComment(text)}
           style={{
             border: "1px solid rgba(255,255,255,0.16)",
             borderRadius: 999,
-            padding: "7px 11px",
-            background: customComment.trim() ? "rgba(244,196,48,0.18)" : "rgba(255,255,255,0.05)",
-            color: customComment.trim() ? "#f4c430" : "rgba(255,255,255,0.35)",
+            padding: "6px 9px",
+            background: "rgba(255,255,255,0.08)",
+            color: "rgba(255,255,255,0.82)",
             fontFamily: "Georgia,serif",
             fontSize: 12,
-            cursor: customComment.trim() ? "pointer" : "default",
+            cursor: "pointer",
           }}
         >
-          Senden
+          💬 {text}
         </button>
-      </form>
-    </div>
-  );
-}
-
-
-function RestClaimRevealPanel({ game }) {
-  const reveal = game.restClaimReveal;
-  if (!reveal) return null;
-  const activeIndex = Math.max(0, Math.min(Number(reveal.activeIndex || 0), (reveal.tricks?.length || 1) - 1));
-  const active = reveal.tricks?.[activeIndex];
-  if (!active) return null;
-
-  return (
-    <div style={{ marginTop: 18, padding: 14, borderRadius: 16, background: "rgba(0,0,0,0.28)", border: "1px solid rgba(244,196,48,0.22)", textAlign: "center" }}>
-      <div style={{ color: "#f4c430", fontWeight: "bold", fontSize: 18 }}>
-        Rest zu mir: {reveal.name}
-      </div>
-      <div style={{ color: "rgba(255,255,255,0.65)", marginTop: 4, fontSize: 13 }}>
-        Stich {active.trickNo || activeIndex + 1} von {reveal.tricks?.[reveal.tricks.length - 1]?.trickNo || "?"} · {reveal.remainingTricks} restliche Stiche ({reveal.pts >= 0 ? "+" : ""}{reveal.pts} Punkte)
-      </div>
-      <div style={{ color: active.pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold", marginTop: 10 }}>
-        Dieser Stich geht an {game.names?.[active.winner] || reveal.name}: {active.pts >= 0 ? "+" : ""}{active.pts}
-      </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start", marginTop: 10 }}>
-        {(active.trick || []).map(({ player, card }, idx) => (
-          <div key={idx} style={{ width: 72, flex: "0 0 72px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-            <div style={{ width: "100%", fontSize: 10, color: player === active.winner ? "#f4c430" : "#6dbf8a", marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "center" }} title={game.names?.[player] || ""}>
-              {game.names?.[player] || ("Platz " + (Number(player) + 1))}
-            </div>
-            <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-              <CardFace card={card} size="sm" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function RestClaimPendingPanel({ game, onRespond }) {
-  const request = game.restClaimRequest;
-  if (!request) return null;
-  const isClaimant = game.yourSeat === request.claimantSeat;
-  const alreadyAccepted = game.yourSeat !== null && request.approvals?.[game.yourSeat] === true;
-
-  return (
-    <div style={{ marginTop: 18, padding: 14, borderRadius: 16, background: "rgba(0,0,0,0.26)", border: "1px solid rgba(244,196,48,0.22)", textAlign: "center" }}>
-      <div style={{ color: "#f4c430", fontWeight: "bold", fontSize: 18 }}>
-        {request.name} möchte „Rest zu mir“ sagen.
-      </div>
-      <div style={{ color: "rgba(255,255,255,0.62)", marginTop: 6, fontSize: 13 }}>
-        In einem reinen Menschenspiel geht das nur, wenn alle anderen zustimmen.
-      </div>
-      {isClaimant || alreadyAccepted ? (
-        <div style={{ marginTop: 12, color: "rgba(255,255,255,0.62)" }}>Warte auf die anderen…</div>
-      ) : game.yourSeat === null ? (
-        <div style={{ marginTop: 12, color: "rgba(255,255,255,0.5)" }}>Du schaust zu.</div>
-      ) : (
-        <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-          <Button onClick={() => onRespond(true)}>Na gut</Button>
-          <Button onClick={() => onRespond(false)}>Nix da</Button>
-        </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -701,11 +577,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
     if (!res?.ok) setError(res?.message || "Rest konnte nicht geclaimt werden.");
   }
 
-  async function respondRestClaim(accept) {
-    const res = await emitAck("respondRestClaim", { roomCode: room.roomCode, accept });
-    if (!res?.ok) setError(res?.message || "Antwort konnte nicht gesendet werden.");
-  }
-
   async function startNextRound() {
     const res = await emitAck("startNextRound", { roomCode: room.roomCode });
     if (!res?.ok) setError(res?.message || "Nächste Rutsche konnte nicht gestartet werden.");
@@ -799,18 +670,16 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
 
       <ScoreStrip game={game} />
       {game.showPenaltyTracker && <NegativeCardsBar game={game} />}
-      {game.phase !== "rest_claim_reveal" && <LastTrickBanner game={game} />}
+      <LastTrickBanner game={game} />
       <CommentBubbles game={game} />
+      <CommentControls room={room} game={game} setError={setError} />
       <SuggestionPanel game={game} />
 
       {game.lastRound && (
-        <div style={{ marginTop: 12, color: "rgba(255,255,255,0.48)", textAlign: "center", fontSize: 12 }}>
+        <div style={{ marginTop: 12, color: "rgba(255,255,255,0.6)", textAlign: "center", fontSize: 13 }}>
           Letztes Spiel: {game.lastRound.roundPts.map((pts, i) => `${game.names[i]} ${pts >= 0 ? "+" : ""}${pts}`).join(" · ")}
         </div>
       )}
-
-      {game.phase === "rest_claim_reveal" && <RestClaimRevealPanel game={game} />}
-      {game.phase === "rest_claim_pending" && <RestClaimPendingPanel game={game} onRespond={respondRestClaim} />}
 
       {game.phase === "quetsch" && (
         <div style={{ marginTop: 22 }}>
@@ -856,7 +725,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   />
                 ))}
               </div>
-              <CommentControls room={room} game={game} setError={setError} />
               <div style={{ textAlign: "center", marginTop: 18 }}>
                 <Button onClick={submitQuetsch} disabled={selected.length !== 3}>Karten weitergeben</Button>
               </div>
@@ -972,7 +840,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                 <div style={{ textAlign: "center", marginTop: 8, marginBottom: 8 }}>
                   <Button onClick={claimRest}>Rest zu mir</Button>
                   <div style={{ marginTop: 5, color: "rgba(255,255,255,0.45)", fontSize: 12 }}>
-                    {game.restClaimNeedsApproval ? "Fragt die anderen: Na gut oder Nix da." : "Alle übrigen Stiche gehen sicher an dich."}
+                    Alle übrigen Stiche gehen sicher an dich.
                   </div>
                 </div>
               )}
@@ -984,24 +852,21 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
               Du schaust zu. Die Handkarten der Spieler bleiben verdeckt.
             </div>
           ) : (
-            <>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8, marginTop: isTrickPause ? 18 : 0 }}>
-                {game.hand.map((card) => {
-                  const canPlay = !isTrickPause && game.currentPlayer === game.yourSeat && validHas(card);
-                  return (
-                    <CardFace
-                      key={cardId(card)}
-                      card={card}
-                      highlighted={canPlay}
-                      suggested={!isTrickPause && game.currentPlayer === game.yourSeat && suggestedHas(card)}
-                      dimmed={!isTrickPause && game.currentPlayer === game.yourSeat && !validHas(card)}
-                      onClick={canPlay ? () => playCard(card) : null}
-                    />
-                  );
-                })}
-              </div>
-              <CommentControls room={room} game={game} setError={setError} />
-            </>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8, marginTop: isTrickPause ? 18 : 0 }}>
+              {game.hand.map((card) => {
+                const canPlay = !isTrickPause && game.currentPlayer === game.yourSeat && validHas(card);
+                return (
+                  <CardFace
+                    key={cardId(card)}
+                    card={card}
+                    highlighted={canPlay}
+                    suggested={!isTrickPause && game.currentPlayer === game.yourSeat && suggestedHas(card)}
+                    dimmed={!isTrickPause && game.currentPlayer === game.yourSeat && !validHas(card)}
+                    onClick={canPlay ? () => playCard(card) : null}
+                  />
+                );
+              })}
+            </div>
           )}
         </div>
       )}

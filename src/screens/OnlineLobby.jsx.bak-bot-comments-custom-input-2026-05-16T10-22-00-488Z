@@ -212,7 +212,7 @@ function cardLabel(card) {
 }
 
 const COMMENT_CHOICES = [
-  "Klassischer Selbstfopp",
+  "Selbstfopp",
   "Treffer - Versenkt!",
   "Oma Stich",
   "Ich liebe Plüssis",
@@ -364,83 +364,35 @@ function CommentBubbles({ game }) {
 }
 
 function CommentControls({ room, game, setError }) {
-  const [customComment, setCustomComment] = useState("");
   if (!room || !game || game.yourSeat === null || game.phase === "gameover") return null;
   const choices = Array.isArray(game.commentChoices) && game.commentChoices.length ? game.commentChoices : COMMENT_CHOICES;
 
   async function sendComment(text) {
     const res = await emitAck("sendComment", { roomCode: room.roomCode, text });
     if (!res?.ok) setError(res?.message || "Spruch konnte nicht gesendet werden.");
-    return res;
-  }
-
-  async function submitCustomComment(event) {
-    event.preventDefault();
-    const text = customComment.trim();
-    if (!text) return;
-    const res = await sendComment(text);
-    if (res?.ok) setCustomComment("");
   }
 
   return (
-    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
-      <div style={{ display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-        {choices.map((text) => (
-          <button
-            key={text}
-            type="button"
-            onClick={() => sendComment(text)}
-            style={{
-              border: "1px solid rgba(255,255,255,0.16)",
-              borderRadius: 999,
-              padding: "6px 9px",
-              background: "rgba(255,255,255,0.08)",
-              color: "rgba(255,255,255,0.82)",
-              fontFamily: "Georgia,serif",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            💬 {text}
-          </button>
-        ))}
-      </div>
-      <form onSubmit={submitCustomComment} style={{ display: "flex", justifyContent: "center", gap: 6, width: "min(100%, 420px)" }}>
-        <input
-          value={customComment}
-          onChange={(event) => setCustomComment(event.target.value)}
-          maxLength={80}
-          placeholder="Eigener Spruch ..."
-          style={{
-            flex: 1,
-            minWidth: 0,
-            border: "1px solid rgba(255,255,255,0.16)",
-            borderRadius: 999,
-            padding: "7px 10px",
-            background: "rgba(255,255,255,0.08)",
-            color: "white",
-            fontFamily: "Georgia,serif",
-            fontSize: 12,
-            outline: "none",
-          }}
-        />
+    <div style={{ marginTop: 10, display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+      {choices.map((text) => (
         <button
-          type="submit"
-          disabled={!customComment.trim()}
+          key={text}
+          type="button"
+          onClick={() => sendComment(text)}
           style={{
             border: "1px solid rgba(255,255,255,0.16)",
             borderRadius: 999,
-            padding: "7px 11px",
-            background: customComment.trim() ? "rgba(244,196,48,0.18)" : "rgba(255,255,255,0.05)",
-            color: customComment.trim() ? "#f4c430" : "rgba(255,255,255,0.35)",
+            padding: "6px 9px",
+            background: "rgba(255,255,255,0.08)",
+            color: "rgba(255,255,255,0.82)",
             fontFamily: "Georgia,serif",
             fontSize: 12,
-            cursor: customComment.trim() ? "pointer" : "default",
+            cursor: "pointer",
           }}
         >
-          Senden
+          💬 {text}
         </button>
-      </form>
+      ))}
     </div>
   );
 }
