@@ -159,9 +159,8 @@ function quickGameDelayMs(room, normalMs) {
   return Math.max(450, Math.round(base * QUICK_GAME_DELAY_FACTOR));
 }
 
-function restClaimRevealDelayMs(_room) {
-  const base = Number(REST_CLAIM_REVEAL_MS);
-  return Number.isFinite(base) ? Math.max(0, base) : 1250;
+function restClaimRevealDelayMs(room) {
+  return quickGameDelayMs(room, REST_CLAIM_REVEAL_MS);
 }
 
 export function publicRoom(room) {
