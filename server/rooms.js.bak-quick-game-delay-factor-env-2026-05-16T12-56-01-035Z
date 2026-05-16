@@ -22,10 +22,7 @@ const DISCONNECTED_HUMAN_BOT_DELAY_MS = Number(process.env.DISCONNECTED_HUMAN_BO
 const REST_CLAIM_MIN_TRICKS = 2;
 const REST_CLAIM_MAX_TRICKS = 4;
 const REST_CLAIM_REVEAL_MS = Number(process.env.REST_CLAIM_REVEAL_MS || 1250);
-const QUICK_GAME_DELAY_FACTOR = (() => {
-  const value = Number(process.env.QUICK_GAME_DELAY_FACTOR ?? 0.62);
-  return Number.isFinite(value) && value > 0 ? value : 0.62;
-})();
+const QUICK_GAME_DELAY_FACTOR = 0.62;
 const COMMENT_TTL_MS = 5_000;
 const COMMENT_MAX_LENGTH = 80;
 const COMMENT_CHOICES = [
