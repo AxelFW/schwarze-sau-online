@@ -593,58 +593,6 @@ function canForceEveryRemainingTrick(gs, claimantSeat, depth = 0) {
   return legal.every(tryCard);
 }
 
-function mustWinEveryRemainingTrick(gs, claimantSeat, depth = 0) {
-  if (!gs || depth > 80) return false;
-  if ((gs.tricksPlayed || 0) >= 13) return true;
-
-  const player = gs.currentPlayer;
-  if (!Number.isInteger(player) || player < 0 || player > 3) return false;
-  const legal = getValidCards(gs, player);
-  if (!legal.length) return (gs.tricksPlayed || 0) >= 13;
-
-  const tryCard = (card) => {
-    const next = applyCard(gs, player, card);
-    if (!next) return false;
-
-    if (next._trickJustFinished) {
-      if (next._trickWinner !== claimantSeat) return false;
-      if ((next.tricksPlayed || 0) >= 13) return true;
-      return mustWinEveryRemainingTrick(clearFinishedTrick(next), claimantSeat, depth + 1);
-    }
-
-    return mustWinEveryRemainingTrick(next, claimantSeat, depth + 1);
-  };
-
-  // Unlike canForceEveryRemainingTrick, this treats the claimant's own choices
-  // as universal too: if even a deliberately different play cannot avoid taking
-  // the rest, the claim is unavoidable and the bot may claim even a bad rest.
-  return legal.every(tryCard);
-}
-
-function claimRestTotalPts(gs, claimantSeat) {
-  if (!gs || !Array.isArray(gs.hands) || !Array.isArray(gs.hands[claimantSeat])) return 0;
-  const remainingTricks = gs.hands[claimantSeat].length;
-  const remainingCardPts = gs.hands.reduce((sum, hand) => {
-    if (!Array.isArray(hand)) return sum;
-    return sum + hand.reduce((inner, card) => inner + cardPts(card), 0);
-  }, 0);
-  return remainingCardPts + remainingTricks * 10;
-}
-
-function canBotAutoClaimRest(room, claimantSeat) {
-  if (!canClaimRestForSeat(room, claimantSeat)) return false;
-  const gs = room?.game?.gs;
-  const claimPts = claimRestTotalPts(gs, claimantSeat);
-
-  // Positive rest: claiming is both legal and strategically useful.
-  if (claimPts > 0) return true;
-
-  // Bad or neutral rest: claim only if playing cannot avoid taking every
-  // remaining trick anyway. This prevents cases like A♥/10♥ into K♥ where the
-  // bot can technically claim, but should lead the 10♥ as an exit instead.
-  return mustWinEveryRemainingTrick(gs, claimantSeat);
-}
-
 function oneClaimWinningLine(gs, claimantSeat, depth = 0) {
   if (!gs || depth > 80) return null;
   if ((gs.tricksPlayed || 0) >= 13) return [];
@@ -860,7 +808,7 @@ export function advanceOneBotCard(room) {
   if (game.phase !== "play") return false;
   const player = game.gs.currentPlayer;
   if (!isBotControlledSeat(room, player)) return false;
-  if (canBotAutoClaimRest(room, player)) {
+  if (canClaimRestForSeat(room, player)) {
     applyRestClaim(room, player, "bot");
     advanceNonCardPhases(room);
     touch(room);
