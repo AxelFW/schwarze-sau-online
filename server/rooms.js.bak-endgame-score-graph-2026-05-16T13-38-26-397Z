@@ -278,7 +278,6 @@ function createGameState(dealer, settings = {}) {
     maxRounds: GAMES_PER_RUNDE * roomSettings.matchRutschen,
     matchRutschen: roomSettings.matchRutschen,
     scores: [0, 0, 0, 0],
-    scoreHistory: [{ round: 0, roundPts: [0, 0, 0, 0], totalScores: [0, 0, 0, 0] }],
     dealer,
     phase: "quetsch", // "quetsch" | "quetsch_review" | "trick_done" | "rest_claim_pending" | "rest_claim_reveal" | "play" | "round_done" | "gameover"
     gs: dealRound(dealer),
@@ -420,13 +419,6 @@ function finishRound(room) {
     tricksWon: [...gs.tricksWon],
     claimedRest: game.lastRestClaim ? { ...game.lastRestClaim } : null,
   };
-  if (!Array.isArray(game.scoreHistory) || game.scoreHistory.length === 0) {
-    game.scoreHistory = [{ round: 0, roundPts: [0, 0, 0, 0], totalScores: [0, 0, 0, 0] }];
-  }
-  game.scoreHistory = [
-    ...game.scoreHistory.filter((entry) => Number(entry?.round) !== Number(game.round)),
-    { round: game.round, roundPts: [...gs.roundPts], totalScores: [...nextScores] },
-  ].sort((a, b) => Number(a.round || 0) - Number(b.round || 0));
   game.scores = nextScores;
 
   if (game.round >= game.maxRounds) {
@@ -1430,11 +1422,6 @@ export function getPrivateGameView(room, socketId) {
     roundPts: gs.roundPts,
     runScores,
     scores: game.scores,
-    scoreHistory: Array.isArray(game.scoreHistory) ? game.scoreHistory.map((entry) => ({
-      round: Number(entry.round || 0),
-      roundPts: Array.isArray(entry.roundPts) ? [...entry.roundPts] : [0, 0, 0, 0],
-      totalScores: Array.isArray(entry.totalScores) ? [...entry.totalScores] : [0, 0, 0, 0],
-    })) : [],
     tricksWon: gs.tricksWon,
     penaltyPlayed: gs.penaltyPlayed,
     lastTrick: game.lastTrick,
