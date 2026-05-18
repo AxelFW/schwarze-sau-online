@@ -543,7 +543,7 @@ const strategicVoidDump = (valid, gs, player) => {
     // Against non-targets, keep truly poisonous cards for better targets unless
     // they also solve a major hand-shape problem.
     if(relation === 'nontarget' && (sameCard(card, QUEEN_SPADES) || (card.s === 'H' && card.v >= 11))) {
-      score -= 32;
+      score -= 22;
     }
 
     // Stable tie-breaks: prefer larger poison against targets, but safer medium
