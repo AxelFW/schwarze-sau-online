@@ -144,7 +144,7 @@ export const applyQuetschSelections = (gs, selections) => {
 };
 
 export const autoApplyAllQuetsch = (gs, pick = heuristicQuetschPick) => {
-  const selections = gs.hands.map((hand, player) => pick(hand, gs, player));
+  const selections = gs.hands.map(hand => pick(hand));
   return applyQuetschSelections(gs, selections);
 };
 

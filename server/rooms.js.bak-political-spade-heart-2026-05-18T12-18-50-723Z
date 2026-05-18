@@ -306,7 +306,7 @@ function ensureBotQuetschSelections(room) {
   if (!game || game.phase !== "quetsch") return;
   for (let seat = 0; seat < 4; seat++) {
     if (isBotControlledSeat(room, seat) && !game.quetschSelections[seat]) {
-      game.quetschSelections[seat] = heuristicQuetschPick(game.gs.hands[seat], botDecisionGameState(room), seat);
+      game.quetschSelections[seat] = heuristicQuetschPick(game.gs.hands[seat]);
       log("Bot wählt Quetsch-Karten", { roomCode: room.roomCode, seat });
     }
   }
@@ -1361,7 +1361,7 @@ export function getPrivateGameView(room, socketId) {
   const quetschSubmitted = seatIndex !== null && Array.isArray(game.quetschSelections?.[seatIndex]);
   const quetschReceived = visibleQuetschReceivedForSeat(game, seatIndex);
   if (settings.easyMode && seatIndex !== null && game.phase === "quetsch" && !quetschSubmitted && hand.length) {
-    const rec = recommendHeuristicQuetschCards(hand, botDecisionGameState(room), seatIndex);
+    const rec = recommendHeuristicQuetschCards(hand);
     quetschSuggestion = {
       cards: Array.isArray(rec?.cards) ? rec.cards.filter((card) => hand.some((own) => sameCard(own, card))) : [],
       rule: rec?.rule || "quetsch_suggestion",

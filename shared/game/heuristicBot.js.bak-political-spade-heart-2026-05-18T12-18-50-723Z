@@ -5,7 +5,7 @@ import {
 // Auto-quetsch for non-human seats. This mirrors the training-side heuristic:
 // avoid isolated ♠Q danger, dangerous high hearts, keep low safety cards,
 // prepare suits with A, and create cheap C/D voids when possible.
-export const heuristicQuetschPick = (hand, gs = null, player = null) => {
+export const heuristicQuetschPick = hand => {
   const selected = [];
   const has = c => hand.some(x => sameCard(x, c));
   const selectedHas = c => selected.some(x => sameCard(x, c));
@@ -93,23 +93,6 @@ export const heuristicQuetschPick = (hand, gs = null, player = null) => {
 
   const seriousDanger = toxicWuzzHighSpadeCluster || weakQSpades || noWuzzHighSpadeTrap || unprotectedHighHearts;
 
-  // Offensive/political ♠Q trap: when ♠Q is well protected by at least three
-  // smaller spades and no ♠K/♠A are held, the bot may pass ♠Q left even though
-  // it is not an emergency.  This is strongest when the left player is a
-  // current target/leader, because the later H_Q1 pressure can attack them.
-  const leftPlayerForQuetsch = Number.isInteger(player) ? (player + 1) % 4 : null;
-  const leftRelationForQuetsch = gs && leftPlayerForQuetsch !== null
-    ? playerRankRelation(gs, player, leftPlayerForQuetsch)
-    : 'unknown';
-  const politicalQueenTrap =
-    hasQSpades &&
-    highSpades.length === 0 &&
-    lowSpadesBelowQueen.length >= 3;
-  const politicalQueenTrapBase =
-    leftRelationForQuetsch === 'target' ? 96 :
-    leftRelationForQuetsch === 'nontarget' ? 62 :
-    74;
-
   // 1. Emergency bucket.
   // ♠Q with ♠A/♠K and fewer than four total spades is especially toxic: pass
   // ♠Q and every held ♠A/♠K before considering normal shape rules.
@@ -149,14 +132,6 @@ export const heuristicQuetschPick = (hand, gs = null, player = null) => {
 
   if(lightProtectedHighHearts) {
     for(const c of highHearts) good.push({card: c, base: 78 + c.v / 10, salt: 'light-protected-high-hearts'});
-  }
-
-  if(politicalQueenTrap && selected.length === 0) {
-    good.push({
-      card: QUEEN_SPADES,
-      base: politicalQueenTrapBase,
-      salt: 'political-long-spade-queen-trap',
-    });
   }
 
   const minorStructuralScore = card => {
@@ -270,11 +245,9 @@ export const heuristicQuetschPick = (hand, gs = null, player = null) => {
 };
 
 export const botQuetschPick = heuristicQuetschPick;
-export const recommendHeuristicQuetschCards = (hand, gs = null, player = null) => {
-  const cards = heuristicQuetschPick(hand, gs, player);
-  const reason = cards.some(c => sameCard(c, QUEEN_SPADES))
-    ? 'Easy Mode: Der Bot würde diese drei Karten quetschen. Er priorisiert gefährliche Strafkarten; mit langer Pik-Struktur kann ♠Q auch politisch nach links gegeben und später unter Druck gesetzt werden.'
-    : 'Easy Mode: Der Bot würde diese drei Karten quetschen. Er priorisiert gefährliche Strafkarten, behält niedrige Schutzkarten und wirft ♣/♦-Asse nicht nur für einen Void weg.';
+export const recommendHeuristicQuetschCards = hand => {
+  const cards = heuristicQuetschPick(hand);
+  const reason = 'Easy Mode: Der Bot würde diese drei Karten quetschen. Er priorisiert gefährliche Strafkarten, behält niedrige Schutzkarten und wirft ♣/♦-Asse nicht nur für einen Void weg.';
   return {
     cards,
     rule: 'quetsch_suggestion',
@@ -524,8 +497,8 @@ const strategicVoidDump = (valid, gs, player) => {
   const relation = playerRankRelation(gs, player, recipient);
   if(relation === 'unknown' || relation === 'peer') return null;
 
-  const targetWeight = relation === 'target' ? 2.05 : 0.25;
-  const shapeWeight = relation === 'target' ? 0.20 : 1.65;
+  const targetWeight = relation === 'target' ? 1.65 : 0.45;
+  const shapeWeight = relation === 'target' ? 0.35 : 1.45;
 
   const scored = valid.map(card => {
     const penalty = Math.max(0, -cardPts(card));
@@ -543,7 +516,7 @@ const strategicVoidDump = (valid, gs, player) => {
     // Against non-targets, keep truly poisonous cards for better targets unless
     // they also solve a major hand-shape problem.
     if(relation === 'nontarget' && (sameCard(card, QUEEN_SPADES) || (card.s === 'H' && card.v >= 11))) {
-      score -= 32;
+      score -= 22;
     }
 
     // Stable tie-breaks: prefer larger poison against targets, but safer medium
@@ -664,33 +637,6 @@ const preserveLastLowSpadeShieldLead = (cards, gs, player) => {
   const shield = lowSpadesInHand[0];
   const filtered = cards.filter(c => !sameCard(c, shield));
   return filtered.length ? filtered : cards;
-};
-
-const passedQueenPressureSpades = (valid, gs, player) => {
-  // If we know we passed ♠Q left, actively pressure that seat with the smallest
-  // safe low spade from early/midgame onward.  It becomes a little earlier when
-  // the left player is a target/current leader.  Do not burn the final low-spade
-  // shield while holding ♠K/♠A.
-  if(!queenSpadesPassedLeft(gs, player)) return [];
-
-  const leftPlayer = (player + 1) % 4;
-  const leftRelation = playerRankRelation(gs, player, leftPlayer);
-  const minTrick = leftRelation === 'target' ? 2 : 3;
-  if(gs.tricksPlayed < minTrick) return [];
-
-  const spadesInHand = valid.filter(c => c.s === 'S' && c.v < 12);
-  if(!spadesInHand.length) return [];
-
-  const unseenSpades = unseenCardsOfSuit(gs, player, 'S');
-  const safeSpades = spadesInHand.filter(c => unseenSpades.some(u => u.v > c.v));
-  if(!safeSpades.length) return [];
-
-  const hand = gs.hands[player] || [];
-  const lowSpadesInHand = hand.filter(c => c.s === 'S' && c.v < 12);
-  const holdsHighSpade = hand.some(c => c.s === 'S' && (c.v === 13 || c.v === 14));
-  if(holdsHighSpade && lowSpadesInHand.length <= 1) return [];
-
-  return smallestCards(safeSpades);
 };
 
 const leftAlreadyPlayedThisTrick = (gs, player) => gs.trick.some(x => x.player === ((player + 1) % 4));
@@ -944,39 +890,6 @@ const voidRiskyWinningLead = (card, gs, player) =>
   ) ||
   quetschSuspiciousWinningLead(card, gs, player);
 
-const knownVoidDumpersInSuit = (gs, player, suit) => {
-  const si = suitIdx(suit);
-  return [1, 2, 3]
-    .map(off => (player + off) % 4)
-    .filter(p => gs.knownVoids?.[p]?.[si] && playerCanStillDumpNegative(gs, p));
-};
-
-const targetAwareVoidLeadDecision = (cards, gs, player) => {
-  // If a target is known void in a candidate suit, reduce the appeal of that
-  // suit because the target can dump safely.  When a safe ♠/♥ pressure lead
-  // survived earlier filters, prefer it directly.
-  if(!cards.length || lowNegativePressureMode(gs)) return {cards, pressure: []};
-
-  const givesTargetFreeDump = card => knownVoidDumpersInSuit(gs, player, card.s)
-    .some(p => playerRankRelation(gs, player, p) === 'target');
-
-  const bad = cards.filter(givesTargetFreeDump);
-  if(!bad.length) return {cards, pressure: []};
-
-  const nonBad = cards.filter(c => !givesTargetFreeDump(c));
-  if(!nonBad.length) return {cards, pressure: []};
-
-  const pressure = nonBad.filter(c =>
-    (c.s === 'S' || c.s === 'H') &&
-    !voidRiskyWinningLead(c, gs, player)
-  );
-
-  return {
-    cards: pressure.length ? pressure : nonBad,
-    pressure,
-  };
-};
-
 const allOpponentsKnownVoidInSuit = (gs, player, suit) =>
   [1, 2, 3].every(off => knownVoidInSuit(gs, (player + off) % 4, suit));
 
@@ -1079,44 +992,6 @@ const harvestWinningLeads = (cards, gs, player) => {
   // Fallback: high-probability winners.
   const likelyWinners = positive.filter(c => highWinProbability(c, gs, player));
   return likelyWinners.length ? largestCards(likelyWinners) : [];
-};
-
-const smallestOutsideHeartRank = (gs, player) => {
-  const outside = unseenCardsOfSuit(gs, player, 'H');
-  return outside.length ? Math.min(...outside.map(c => c.v)) : null;
-};
-
-const heartBleedLeadCandidates = (cards, gs, player) => {
-  // Anti-greed heart bleed: only in mid/late game when all outside hearts are
-  // at least ♥9, and only if a non-heart winning lead is tempting.  This keeps
-  // the bot from always leading tiny hearts while still avoiding automatic ace
-  // cash-ins when large hearts are waiting outside.
-  if(!cards.length) return [];
-  if(gs.tricksPlayed < 4) return [];
-  if(lowNegativePressureMode(gs)) return [];
-
-  const minOutsideHeart = smallestOutsideHeartRank(gs, player);
-  if(minOutsideHeart === null || minOutsideHeart < 9) return [];
-
-  const hearts = cards.filter(c => c.s === 'H');
-  if(!hearts.length) return [];
-
-  const temptingWinner = cards.some(c =>
-    c.s !== 'H' &&
-    !sameCard(c, QUEEN_SPADES) &&
-    projectedLeadNetFloor(c, gs, player) >= HARVEST_MIN_PROJECTED_NET &&
-    highWinProbability(c, gs, player)
-  );
-  if(!temptingWinner) return [];
-
-  const safeBleedHearts = hearts.filter(c =>
-    c.v < minOutsideHeart &&
-    c.v < 11 &&
-    hasHigherUnplayedOutsideOwnHand(c, gs, player) &&
-    !heartLeadExposureRisk(c, gs, player)
-  );
-
-  return safeBleedHearts.length ? smallestCards(safeBleedHearts) : [];
 };
 
 const harvestFollowWinners = (cards, gs, player) => {
@@ -1394,12 +1269,6 @@ const botSuggestionReason = (rule, detail = '') => {
       return 'Die ♠Q ist hier ein Cashout: außen sind nur noch hohe Pik, daher muss jemand sie übernehmen.' + suffix;
     case 'spade_safety_lead':
       return 'Der Bot vermeidet gefährliche Pik-Anspiele und behält mit ♠K/♠A möglichst eine kleine Pik-Schutzkarte.' + suffix;
-    case 'passed_queen_pressure_lead':
-      return 'Der Bot weiß, dass er ♠Q nach links gegeben hat, und setzt diesen Sitz mit einer kleinen Pik-Karte unter Druck.' + suffix;
-    case 'heart_bleed_lead':
-      return 'Der Bot spielt eine kleine Herz-Karte, weil draußen nur noch hohe Herzen liegen und ein sofortiger Gewinnzug sonst zu gierig wäre.' + suffix;
-    case 'target_void_pressure_lead':
-      return 'Der Bot meidet eine Farbe, in der ein Zielspieler sicher abwerfen könnte, und sucht stattdessen Druck über Pik oder Herz.' + suffix;
     case 'harvest_lead':
       return 'Der Bot sieht nur noch wenig ungelösten Strafkarten-Druck und versucht nun aktiver positive Stiche zu gewinnen.' + suffix;
     case 'risky_heart_lead':
@@ -1537,13 +1406,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     // low spade shield on lead when another candidate exists.
     candidates = preserveLastLowSpadeShieldLead(candidates, gs, player);
 
-    // H_Q1: If we passed ♠Q left, actively pressure that seat with safe LOW
-    // spades from early/midgame onward.  If the direct pressure trigger does
-    // not fire yet, still re-add safe low spades as allowed candidates.
-    const qPressureSpades = passedQueenPressureSpades(valid, gs, player);
-    if(qPressureSpades.length) {
-      return finish(qPressureSpades, 'passed_queen_pressure_lead');
-    }
+    // H_Q1: If we passed ♠Q left, allow safe LOW spades to pressure that seat.
+    // The no-high-spade-lead rule still applies: never re-add ♠K/♠A here.
     if(queenSpadesPassedLeft(gs, player)) {
       const spadesInHand = valid.filter(c => c.s === 'S' && c.v < 12);
       if(spadesInHand.length) {
@@ -1558,11 +1422,6 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
         }
       }
     }
-
-    // H_HBLEED: Before greedily harvesting positive winners, bleed the smallest
-    // safe held heart when every outside heart is at least ♥9.
-    const heartBleedLeads = heartBleedLeadCandidates(candidates, gs, player);
-    if(heartBleedLeads.length) return finish(heartBleedLeads, 'heart_bleed_lead');
 
     // H_HARVEST: If late-game penalty risk is low, stop over-avoiding
     // voids and prefer high-probability winners of positive tricks.
@@ -1607,15 +1466,6 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
         candidates = leastBadVoidRiskLeadCandidates(candidates, gs, player);
       }
     }
-
-    // H_TVOID: Score-aware void politics.  If a target is known void in a
-    // candidate suit, do not give them a safe dump when a sensible alternative
-    // exists; prefer surviving ♠/♥ pressure directly.
-    const targetVoidDecision = targetAwareVoidLeadDecision(candidates, gs, player);
-    if(targetVoidDecision.pressure.length) {
-      return finish(targetVoidDecision.pressure, 'target_void_pressure_lead');
-    }
-    candidates = targetVoidDecision.cards;
 
     // H_NEGHIST: From trick 2 onward, avoid non-heart suits that have already
     // produced a negative trick, unless the candidate is a safe bleed/exit.

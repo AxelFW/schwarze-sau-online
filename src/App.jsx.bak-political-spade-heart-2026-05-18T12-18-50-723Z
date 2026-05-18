@@ -280,7 +280,7 @@ export default function App() {
   };
 
   const autoApplyAllQuetsch = (g) => {
-    const sels = g.hands.map((h, i) => botQuetschPick(h, g, i));
+    const sels = g.hands.map(h => botQuetschPick(h));
     const newHands = g.hands.map(h=>[...h]);
     const toAdd = [[],[],[],[]];
     for(let i=0;i<4;i++){
@@ -297,7 +297,7 @@ export default function App() {
   const confirmQuetschSelection = (selected) => {
     // Build selections array, auto-filling bots
     const newSels = gs.quetschSelections.map((s,i) =>
-      i===quetschStep ? selected : (isBot[i] ? botQuetschPick(gs.hands[i], gs, i) : s)
+      i===quetschStep ? selected : (isBot[i] ? botQuetschPick(gs.hands[i]) : s)
     );
 
     // Find next human player who still needs to pick
@@ -310,7 +310,7 @@ export default function App() {
     } else {
       // All selections done — apply quetsch
       const finalSels = [0,1,2,3].map(i =>
-        isBot[i] ? botQuetschPick(gs.hands[i], gs, i) : newSels[i]
+        isBot[i] ? botQuetschPick(gs.hands[i]) : newSels[i]
       );
       const newHands = gs.hands.map(h=>[...h]);
       const toAdd = [[],[],[],[]];
