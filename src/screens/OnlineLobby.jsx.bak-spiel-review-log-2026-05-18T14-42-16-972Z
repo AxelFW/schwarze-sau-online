@@ -427,74 +427,6 @@ function LastTrickBanner({ game }) {
   );
 }
 
-
-function SpielReviewPanel({ game, summary }) {
-  const [open, setOpen] = useState(false);
-  const log = Array.isArray(summary?.spielLog) ? summary.spielLog : [];
-  if (!log.length) return null;
-
-  const winnerPlayIndex = (entry) => {
-    const trick = Array.isArray(entry?.trick) ? entry.trick : [];
-    const leadSuit = trick[0]?.card?.s;
-    if (!leadSuit) return -1;
-    let bestIndex = -1;
-    let bestRank = -Infinity;
-    trick.forEach((play, idx) => {
-      if (play?.card?.s === leadSuit && Number(play.card.v) > bestRank) {
-        bestIndex = idx;
-        bestRank = Number(play.card.v);
-      }
-    });
-    return bestIndex;
-  };
-
-  return (
-    <div style={{ marginTop: 18, textAlign: "center" }}>
-      <Button onClick={() => setOpen((value) => !value)} style={{ padding: "9px 14px", background: open ? "rgba(255,255,255,0.12)" : undefined, color: open ? "white" : undefined }}>
-        {open ? "Spielverlauf ausblenden" : "Spielverlauf anzeigen"}
-      </Button>
-      {open && (
-        <div style={{ marginTop: 14, maxHeight: "62vh", overflowY: "auto", padding: 12, borderRadius: 16, background: "rgba(0,0,0,0.24)", border: "1px solid rgba(255,255,255,0.1)", textAlign: "left" }}>
-          {log.map((entry, idx) => {
-            const trick = Array.isArray(entry.trick) ? entry.trick : [];
-            const leadSuit = trick[0]?.card?.s;
-            const winIdx = winnerPlayIndex(entry);
-            const pts = Number(entry.pts || 0);
-            return (
-              <div key={(entry.trickNo || idx + 1) + "-" + idx} style={{ padding: "12px 10px", borderRadius: 13, background: idx % 2 ? "rgba(255,255,255,0.035)" : "rgba(255,255,255,0.065)", border: "1px solid rgba(255,255,255,0.06)", marginBottom: 9 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap", marginBottom: 9 }}>
-                  <strong style={{ color: "#f4c430" }}>Stich {entry.trickNo || idx + 1}{entry.claimedRest ? " · Rest" : ""}</strong>
-                  <span style={{ color: "rgba(255,255,255,0.68)", fontSize: 13 }}>
-                    {leadSuit ? <>Ausgespielt: {SYM[leadSuit]} · </> : null}
-                    Gewinner: {game.names?.[entry.winner] ?? "?"} · <span style={{ color: pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{pts >= 0 ? "+" : ""}{pts}</span>
-                  </span>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                  {trick.map(({ player, card }, playIdx) => {
-                    const isWinner = playIdx === winIdx;
-                    const ptsCard = cardPts(card);
-                    return (
-                      <div key={playIdx} style={{ width: 72, flex: "0 0 72px", padding: 6, borderRadius: 10, background: isWinner ? "rgba(244,196,48,0.13)" : "rgba(0,0,0,0.12)", border: isWinner ? "1px solid rgba(244,196,48,0.45)" : "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-                        <div style={{ width: "100%", fontSize: 10, color: isWinner ? "#f4c430" : "#6dbf8a", marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={game.names?.[player]}>
-                          {game.names?.[player] ?? ("P" + (Number(player) + 1))}
-                        </div>
-                        <CardFace card={card} size="sm" />
-                        <div style={{ fontSize: 10, minHeight: 13, color: ptsCard < 0 ? "#f87171" : "rgba(255,255,255,0.42)", marginTop: 3 }}>
-                          {ptsCard !== 0 ? ptsCard : ""}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function CommentBubbles({ game }) {
   const latest = Array.isArray(game?.comments) && game.comments.length ? game.comments[game.comments.length - 1] : null;
   const [now, setNow] = useState(Date.now());
@@ -933,7 +865,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
             <strong style={{ color: "#f4c430" }}>{p.score}</strong>
           </div>
         ))}
-        <SpielReviewPanel game={game} summary={game.lastRound} />
         <PointsDevelopmentGraph game={game} />
       </div>
     );
@@ -969,7 +900,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
             );
           })}
         </div>
-        <SpielReviewPanel game={game} summary={summary} />
         <div style={{ marginTop: 20, textAlign: "center" }}>
           {game.canStartNextRound ? (
             <Button onClick={startNextRound}>Spiel {game.round + 1} starten</Button>

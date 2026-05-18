@@ -287,9 +287,6 @@ function createGameState(dealer, settings = {}) {
     quetschReviewUntil: null,
     currentQuetschSeat: null,
     lastTrick: null,
-    // Compact trick-by-trick review for the current Spiel. It stays server-side
-    // during live play and is only sent as part of lastRound once the Spiel ends.
-    spielLog: [],
     // During the completed-trick pause, keep lastTrick as the previous
     // trick.  The just-finished trick stays on the table and moves here only
     // after the pause, so the previous trick display does not jump early.
@@ -346,54 +343,6 @@ function visibleQuetschReceivedForSeat(game, seatIndex) {
   return Array.isArray(game.quetschReceived?.[seatIndex])
     ? game.quetschReceived[seatIndex].map((card) => ({ ...card }))
     : [];
-}
-
-
-function normalizeSpielLogPlay(play) {
-  if (!play || !play.card) return null;
-  const player = Number(play.player);
-  const v = Number(play.card.v);
-  const s = String(play.card.s || '');
-  if (!Number.isInteger(player) || player < 0 || player > 3 || !s || !Number.isFinite(v)) return null;
-  return { player, card: { s, v } };
-}
-
-function normalizeSpielLogTrick(entry, fallbackTrickNo = null) {
-  const plays = (Array.isArray(entry?.trick) ? entry.trick : [])
-    .map(normalizeSpielLogPlay)
-    .filter(Boolean);
-  if (!plays.length) return null;
-
-  const trickNo = Number(entry?.trickNo ?? entry?.n ?? fallbackTrickNo ?? 0);
-  const leaderRaw = Number(entry?.leader ?? entry?.l ?? plays[0]?.player);
-  const winnerRaw = Number(entry?.winner ?? entry?.w);
-  const ptsRaw = Number(entry?.pts ?? entry?.p ?? 0);
-
-  return {
-    trickNo: Number.isFinite(trickNo) && trickNo > 0 ? trickNo : fallbackTrickNo,
-    leader: Number.isInteger(leaderRaw) ? leaderRaw : plays[0]?.player,
-    winner: Number.isInteger(winnerRaw) ? winnerRaw : null,
-    pts: Number.isFinite(ptsRaw) ? ptsRaw : 0,
-    claimedRest: Boolean(entry?.claimedRest),
-    trick: plays,
-  };
-}
-
-function sanitizeSpielLog(log) {
-  if (!Array.isArray(log)) return [];
-  return log
-    .map((entry, idx) => normalizeSpielLogTrick(entry, idx + 1))
-    .filter(Boolean)
-    .slice(0, 13);
-}
-
-function appendSpielLogTrick(game, entry) {
-  if (!game) return null;
-  const current = sanitizeSpielLog(game.spielLog);
-  const normalized = normalizeSpielLogTrick(entry, current.length + 1);
-  if (!normalized) return null;
-  game.spielLog = [...current, normalized].slice(0, 13);
-  return normalized;
 }
 
 function startQuetschReview(room) {
@@ -470,7 +419,6 @@ function finishRound(room) {
     totalScores: [...nextScores],
     tricksWon: [...gs.tricksWon],
     claimedRest: game.lastRestClaim ? { ...game.lastRestClaim } : null,
-    spielLog: sanitizeSpielLog(game.spielLog),
   };
   if (!Array.isArray(game.scoreHistory) || game.scoreHistory.length === 0) {
     game.scoreHistory = [{ round: 0, roundPts: [0, 0, 0, 0], totalScores: [0, 0, 0, 0] }];
@@ -618,13 +566,6 @@ function applyOnlineCard(room, player, card) {
 
   if (next._trickJustFinished) {
     maybeAddBotCommentForFinishedTrick(room, gsBefore, next);
-    appendSpielLogTrick(game, {
-      trickNo: next.tricksPlayed,
-      leader: next._trickCards?.[0]?.player,
-      winner: next._trickWinner,
-      pts: next._trickNet,
-      trick: next._trickCards,
-    });
     const isFinalTrick = next.tricksPlayed >= 13;
     const reviewDelayMs = quickGameDelayMs(room, isFinalTrick ? FINAL_TRICK_DISPLAY_MS : TRICK_DISPLAY_MS);
     game.pendingLastTrick = {
@@ -901,10 +842,6 @@ function applyRestClaim(room, claimantSeat, source = "manual", options = {}) {
   const claimTricks = renumberClaimTricks(rawTricks, firstClaimTrickNo);
   const claimCards = claimTricks.flatMap((trick) => trick.trick.map((play) => ({ ...play.card })));
   const claimPts = claimCards.reduce((sum, card) => sum + cardPts(card), 0) + claimTricks.length * 10;
-  game.spielLog = [
-    ...sanitizeSpielLog(game.spielLog),
-    ...claimTricks.map((trick) => normalizeSpielLogTrick({ ...trick, claimedRest: true })).filter(Boolean),
-  ].slice(0, 13);
   const nextRoundPts = gs.roundPts.map((pts, seat) => seat === claimantSeat ? pts + claimPts : pts);
   const nextTricksWon = gs.tricksWon.map((count, seat) => seat === claimantSeat ? count + remainingTricks : count);
 
@@ -1249,7 +1186,6 @@ export function startNextOnlineRound({ roomCode, socketId }) {
   game.quetschReviewUntil = null;
   game.currentQuetschSeat = null;
   game.lastTrick = null;
-  game.spielLog = [];
   game.pendingLastTrick = null;
   game.lastRestClaim = null;
   game.restClaimRequest = null;
@@ -1456,11 +1392,6 @@ export function getPrivateGameView(room, socketId) {
     pausedAt: game.restClaimReveal.pausedAt || null,
     revealUntil: game.restClaimReveal.revealUntil || null,
   } : null;
-  const includeSpielReview = game.phase === "round_done" || game.phase === "gameover";
-  const lastRoundForView = game.lastRound ? {
-    ...game.lastRound,
-    spielLog: includeSpielReview ? sanitizeSpielLog(game.lastRound.spielLog) : [],
-  } : null;
   return {
     phase: game.phase,
     yourSeat: seatIndex,
@@ -1507,7 +1438,7 @@ export function getPrivateGameView(room, socketId) {
     tricksWon: gs.tricksWon,
     penaltyPlayed: gs.penaltyPlayed,
     lastTrick: game.lastTrick,
-    lastRound: lastRoundForView,
+    lastRound: game.lastRound,
     cardPointPreview: hand.reduce((acc, c) => ({ ...acc, [`${c.s}${c.v}`]: cardPts(c) }), {}),
     canStartNextRound: game.phase === "round_done" && seatIndex !== null && (room.hostSocketId === socketId || !room.hostSocketId),
   };

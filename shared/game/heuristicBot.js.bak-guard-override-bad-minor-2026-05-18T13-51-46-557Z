@@ -652,8 +652,6 @@ const preserveLastLowSpadeShieldLead = (cards, gs, player) => {
   // Lead-only candidate filter: if ♠Q is still outside and we hold ♠K/♠A, keep
   // one low spade shield (<♠Q) when possible.  Do not make the bot unable to
   // lead; if all candidates burn the shield, keep the original candidates.
-  // Exception: do not preserve the shield at the cost of an immediate certain
-  // dump disaster, such as a dead ♣/♦ winner into known-void opponents.
   if(!cards.length || !queenSpadesLiveOutside(gs, player)) return cards;
 
   const hand = gs.hands[player] || [];
@@ -665,17 +663,7 @@ const preserveLastLowSpadeShieldLead = (cards, gs, player) => {
 
   const shield = lowSpadesInHand[0];
   const filtered = cards.filter(c => !sameCard(c, shield));
-  if(!filtered.length) return cards;
-
-  // If every alternative left after removing the shield is already classified
-  // as an immediate bad lead, keep the shield available.  Later H_V1 / normal
-  // lead logic can then prefer the low spade over walking into the dump.
-  const onlyImmediateBadAlternatives = filtered.every(c =>
-    c.s !== 'S' && clearlyBadLeadAlternative(c, gs, player)
-  );
-  if(onlyImmediateBadAlternatives) return cards;
-
-  return filtered;
+  return filtered.length ? filtered : cards;
 };
 
 const passedQueenPressureSpades = (valid, gs, player) => {
@@ -995,23 +983,8 @@ const allOpponentsKnownVoidInSuit = (gs, player, suit) =>
 const aceAlreadyPlayedInSuit = (gs, suit) =>
   [...completedCards(gs), ...trickCards(gs)].some(c => c?.s === suit && c?.v === 14);
 
-const certainBadMinorWinnerLead = (card, gs, player) => {
-  if(!card || !sideSuit(card.s)) return false;
-  if(lowNegativePressureMode(gs) || harvestModeActive(gs, player)) return false;
-  if(!anyOpponentVoidIn(gs, player, card.s) && !allOpponentsKnownVoidInSuit(gs, player, card.s)) return false;
-
-  // The failure mode we want to catch is not merely "a minor-suit card"; it is
-  // a card that is very likely to keep the lead, e.g. last/highest remaining
-  // ♣/♦, while opponents have a live dump.
-  const likelyKeepsTrick = noHigherUnseenCard(card, gs, player) || highWinProbability(card, gs, player);
-  if(!likelyKeepsTrick) return false;
-
-  return projectedLeadNetFloor(card, gs, player) <= 0;
-};
-
 const clearlyBadLeadAlternative = (card, gs, player) => {
   if(!card || lowNegativePressureMode(gs) || harvestModeActive(gs, player)) return false;
-  if(certainBadMinorWinnerLead(card, gs, player)) return true;
 
   // Strongest case: everyone else is known void in this suit, so our lead is
   // effectively certain to keep the trick while opponents can dump remaining
