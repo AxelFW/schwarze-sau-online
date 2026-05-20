@@ -906,19 +906,8 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
 
   async function startNextRound() {
     const res = await emitAck("startNextRound", { roomCode: room.roomCode });
-    if (!res?.ok) setError(res?.message || "Nächstes Spiel konnte nicht gestartet werden.");
+    if (!res?.ok) setError(res?.message || "Nächste Rutsche konnte nicht gestartet werden.");
   }
-
-  async function continueMatch() {
-    const res = await emitAck("startNextRound", { roomCode: room.roomCode, continueMatch: true });
-    if (!res?.ok) setError(res?.message || "Noch eine Rutsche konnte nicht gestartet werden.");
-  }
-
-  async function restartGame() {
-    const res = await emitAck("restartGame", { roomCode: room.roomCode });
-    if (!res?.ok) setError(res?.message || "Neues Spiel konnte nicht gestartet werden.");
-  }
-
 
   async function takeOverBotFromGame() {
     if (typeof onTakeOverBot === "function") await onTakeOverBot();
@@ -946,17 +935,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
         ))}
         <SpielReviewPanel game={game} summary={game.lastRound} />
         <PointsDevelopmentGraph game={game} />
-        <div style={{ marginTop: 20, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-          {game.canContinueMatch && (
-            <Button onClick={continueMatch}>Noch eine Rutsche</Button>
-          )}
-          {game.canRestartMatch && (
-            <Button onClick={restartGame} style={{ background: "rgba(255,255,255,0.12)", color: "white" }}>Neues Spiel</Button>
-          )}
-          {!game.canContinueMatch && !game.canRestartMatch && (
-            <div style={{ color: "rgba(255,255,255,0.58)", textAlign: "center" }}>Warte, bis der Host entscheidet…</div>
-          )}
-        </div>
       </div>
     );
   }
@@ -1236,7 +1214,7 @@ export default function OnlineLobby({ onBack }) {
   const [connected, setConnected] = useState(socket.connected);
   const [socketId, setSocketId] = useState(socket.id || null);
   const [name, setName] = useState(localStorage.getItem("wuzzName") || randomFirstName());
-  const [preferredMatchRutschen, setPreferredMatchRutschen] = useState(1);
+  const [preferredMatchRutschen, setPreferredMatchRutschen] = useState(2);
   const [preferredShowPenaltyTracker, setPreferredShowPenaltyTracker] = useState(true);
   const [preferredEasyMode, setPreferredEasyMode] = useState(INITIAL_EASY_MODE_FROM_URL === true);
   const [preferredQuickGame, setPreferredQuickGame] = useState(false);

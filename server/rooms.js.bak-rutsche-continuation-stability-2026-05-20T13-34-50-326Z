@@ -11,7 +11,7 @@ import { sameCard, sortHand, cardPts, isPenalty } from "../shared/game/cards.js"
 
 const rooms = new Map();
 const GAMES_PER_RUNDE = 4;
-const DEFAULT_MATCH_RUNDEN = Number(process.env.DEFAULT_MATCH_RUNDEN || 1);
+const DEFAULT_MATCH_RUNDEN = Number(process.env.DEFAULT_MATCH_RUNDEN || 2);
 const MAX_ROUNDS = GAMES_PER_RUNDE * (DEFAULT_MATCH_RUNDEN === 1 ? 1 : 2);
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS || 30 * 60 * 1000);
 const QUETSCH_REVIEW_MS = Number(process.env.QUETSCH_REVIEW_MS || 2600);
@@ -1211,15 +1211,6 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
   return publicRoom(room);
 }
 
-
-function startFreshGameForSameSeats(room, settings = room.settings) {
-  const dealer = Math.floor(Math.random() * 4);
-  room.status = "playing";
-  room.game = createGameState(dealer, settings);
-  advanceNonCardPhases(room);
-  return room;
-}
-
 export function startOnlineGame({ roomCode, socketId }) {
   const room = requireRoom(roomCode);
   assertLobby(room);
@@ -1228,18 +1219,18 @@ export function startOnlineGame({ roomCode, socketId }) {
   if (openSeat) throw new Error("Alle Plätze müssen mit Menschen oder Bots besetzt sein.");
   const humanCount = room.seats.filter((s) => s.type === "human").length;
   if (humanCount < 1) throw new Error("Mindestens ein Mensch muss mitspielen.");
-  startFreshGameForSameSeats(room, room.settings);
-  log("Spiel gestartet", { roomCode: room.roomCode, dealer: room.game?.dealer });
+  const dealer = Math.floor(Math.random() * 4);
+  room.status = "playing";
+  room.game = createGameState(dealer, room.settings);
+  advanceNonCardPhases(room);
+  log("Spiel gestartet", { roomCode: room.roomCode, dealer });
   return room;
 }
 
-export function startNextOnlineRound({ roomCode, socketId, continueMatch = false }) {
+export function startNextOnlineRound({ roomCode, socketId }) {
   const room = requireRoom(roomCode);
   if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
-  const continuingFinishedMatch = room.game.phase === "gameover" && continueMatch === true;
-  if (room.game.phase !== "round_done" && !continuingFinishedMatch) {
-    throw new Error("Das nächste Spiel kann gerade nicht gestartet werden.");
-  }
+  if (room.game.phase !== "round_done") throw new Error("Die nächste Rutsche kann gerade nicht gestartet werden.");
 
   const seat = findSeatForSocket(room, socketId);
   if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
@@ -1248,10 +1239,6 @@ export function startNextOnlineRound({ roomCode, socketId, continueMatch = false
   }
 
   const game = room.game;
-  if (continuingFinishedMatch) {
-    game.maxRounds = Math.max(Number(game.maxRounds || 0), Number(game.round || 0)) + GAMES_PER_RUNDE;
-    game.matchRutschen = Math.ceil(game.maxRounds / GAMES_PER_RUNDE);
-  }
   const nextDealer = (game.dealer + 1) % 4;
   game.round += 1;
   game.dealer = nextDealer;
@@ -1270,28 +1257,10 @@ export function startNextOnlineRound({ roomCode, socketId, continueMatch = false
   game.comments = [];
   game.quetschGiftSources = [];
   advanceNonCardPhases(room);
-  log(continuingFinishedMatch ? "Noch eine Rutsche gestartet" : "Nächstes Spiel gestartet", { roomCode: room.roomCode, round: game.round, maxRounds: game.maxRounds, dealer: nextDealer, socketId });
+  log("Nächste Rutsche gestartet", { roomCode: room.roomCode, round: game.round, dealer: nextDealer, socketId });
   return room;
 }
 
-
-
-export function restartOnlineGame({ roomCode, socketId }) {
-  const room = requireRoom(roomCode);
-  if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
-  if (room.game.phase !== "gameover") throw new Error("Ein neues Spiel kann erst nach dem Rutschenende gestartet werden.");
-
-  const seat = findSeatForSocket(room, socketId);
-  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
-  if (room.hostSocketId && room.hostSocketId !== socketId) {
-    throw new Error("Nur der Host kann ein neues Spiel starten.");
-  }
-
-  startFreshGameForSameSeats(room, room.settings);
-  touch(room);
-  log("Neues Spiel in gleicher Konstellation gestartet", { roomCode: room.roomCode, socketId });
-  return room;
-}
 
 export function claimRestOnline({ roomCode, socketId }) {
   const room = requireRoom(roomCode);
@@ -1488,7 +1457,6 @@ export function getPrivateGameView(room, socketId) {
     revealUntil: game.restClaimReveal.revealUntil || null,
   } : null;
   const includeSpielReview = game.phase === "round_done" || game.phase === "gameover";
-  const canHostControlFinishedMatch = game.phase === "gameover" && seatIndex !== null && (room.hostSocketId === socketId || !room.hostSocketId);
   const lastRoundForView = game.lastRound ? {
     ...game.lastRound,
     spielLog: includeSpielReview ? sanitizeSpielLog(game.lastRound.spielLog) : [],
@@ -1542,8 +1510,6 @@ export function getPrivateGameView(room, socketId) {
     lastRound: lastRoundForView,
     cardPointPreview: hand.reduce((acc, c) => ({ ...acc, [`${c.s}${c.v}`]: cardPts(c) }), {}),
     canStartNextRound: game.phase === "round_done" && seatIndex !== null && (room.hostSocketId === socketId || !room.hostSocketId),
-    canContinueMatch: canHostControlFinishedMatch,
-    canRestartMatch: canHostControlFinishedMatch,
   };
 }
 

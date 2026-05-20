@@ -19,7 +19,6 @@ import {
   reconnectSeat,
   startOnlineGame,
   startNextOnlineRound,
-  restartOnlineGame,
   submitOnlineQuetsch,
   playOnlineCard,
   claimRestOnline,
@@ -48,9 +47,6 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 const BOT_DELAY_MS = Number(process.env.BOT_DELAY_MS || 650);
 const EXPIRY_SWEEP_MS = Number(process.env.EXPIRY_SWEEP_MS || 60_000);
 const EMPTY_TABLE_CLOSE_MS = Number(process.env.EMPTY_TABLE_CLOSE_MS || 60_000);
-// Warn when a single outgoing websocket payload gets large. This does not change
-// gameplay, but it makes late-match crashes much easier to diagnose on Render.
-const WS_PAYLOAD_WARN_BYTES = Number(process.env.WS_PAYLOAD_WARN_BYTES || 120_000);
 
 const app = express();
 app.use(cors({ origin: NODE_ENV === "production" ? false : true }));
@@ -132,29 +128,6 @@ function log(message, data = {}) {
   console.log(`[server] ${message}`, data);
 }
 
-
-function warnLargeWsPayload(eventName, roomCode, payload, target = "room") {
-  if (!Number.isFinite(WS_PAYLOAD_WARN_BYTES) || WS_PAYLOAD_WARN_BYTES <= 0) return;
-  let bytes = 0;
-  try {
-    bytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
-  } catch (err) {
-    log("WS-Payload konnte nicht gemessen werden", { eventName, roomCode, target, error: err.message });
-    return;
-  }
-  if (bytes < WS_PAYLOAD_WARN_BYTES) return;
-  const game = payload?.game || null;
-  log("Großes WS-Payload", {
-    eventName,
-    roomCode,
-    target,
-    kb: Math.round(bytes / 102.4) / 10,
-    phase: game?.phase || payload?.phase || null,
-    round: game?.round || null,
-    maxRounds: game?.maxRounds || null,
-  });
-}
-
 function sendError(socket, message) {
   socket.emit("roomError", { message });
 }
@@ -167,30 +140,25 @@ function emitRoomAndGame(room) {
   const publicState = publicRoom(room);
   scheduleEmptyTableCloseIfNeeded(room, publicState);
   scheduleDisconnectedBotAdvanceIfNeeded(room);
-  warnLargeWsPayload("roomUpdated", room.roomCode, publicState);
   io.to(room.roomCode).emit("roomUpdated", publicState);
   if (room.status !== "playing" || !room.game) return;
 
   for (const seat of room.seats) {
     if (seat.type === "human" && seat.socketId) {
-      const privatePayload = {
+      io.to(seat.socketId).emit("gameUpdated", {
         room: publicState,
         game: getPrivateGameView(room, seat.socketId),
-      };
-      warnLargeWsPayload("gameUpdated", room.roomCode, privatePayload, "seat:" + seat.seat);
-      io.to(seat.socketId).emit("gameUpdated", privatePayload);
+      });
     }
   }
 
   for (const spectatorSocketId of room.spectators || []) {
     const isSeated = room.seats.some((seat) => seat.type === "human" && seat.socketId === spectatorSocketId);
     if (!isSeated) {
-      const spectatorPayload = {
+      io.to(spectatorSocketId).emit("gameUpdated", {
         room: publicState,
         game: getSpectatorGameView(room),
-      };
-      warnLargeWsPayload("gameUpdated", room.roomCode, spectatorPayload, "spectator");
-      io.to(spectatorSocketId).emit("gameUpdated", spectatorPayload);
+      });
     }
   }
 }
@@ -561,7 +529,7 @@ io.on("connection", (socket) => {
 
   socket.on("startNextRound", (payload = {}, ack) => {
     try {
-      const room = startNextOnlineRound({ roomCode: payload.roomCode, socketId: socket.id, continueMatch: payload.continueMatch === true });
+      const room = startNextOnlineRound({ roomCode: payload.roomCode, socketId: socket.id });
       emitRoomAndGame(room);
       acknowledge(ack, { ok: true });
       scheduleAdvance(room.roomCode, false);
@@ -570,19 +538,6 @@ io.on("connection", (socket) => {
       acknowledge(ack, { ok: false, message: err.message });
     }
   });
-
-  socket.on("restartGame", (payload = {}, ack) => {
-    try {
-      const room = restartOnlineGame({ roomCode: payload.roomCode, socketId: socket.id });
-      emitRoomAndGame(room);
-      acknowledge(ack, { ok: true });
-      scheduleAdvance(room.roomCode, false);
-    } catch (err) {
-      sendError(socket, err.message);
-      acknowledge(ack, { ok: false, message: err.message });
-    }
-  });
-
 
   socket.on("playCard", (payload = {}, ack) => {
     try {
