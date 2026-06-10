@@ -28,6 +28,9 @@ import {
   respondRestClaimOnline,
   sendOnlineComment,
   getInternalRoom,
+  listPublicTables,
+  listBenchmarkDecks,
+  getBenchmarkHighscores,
   publicRoom,
   getPrivateGameView,
   getSpectatorGameView,
@@ -76,6 +79,7 @@ const io = new Server(httpServer, {
 const advanceTimers = new Map();
 const emptyTableCloseTimers = new Map();
 const disconnectedBotAdvanceTimers = new Map();
+let publicLobbyStateFingerprint = "";
 
 function roomHasConnectedHumanPlayer(publicState) {
   return Boolean(publicState?.seats?.some((seat) => seat.type === "human" && Boolean(seat.socketId)));
@@ -117,6 +121,7 @@ function scheduleEmptyTableCloseIfNeeded(room, publicState = null) {
       io.to(roomCode).emit("roomClosed", {
         message: "Alle Spieler haben den Tisch verlassen. Der Tisch wurde geschlossen.",
       });
+      emitPublicLobbyState();
       log("Tisch ohne verbundene Spieler geschlossen", { roomCode });
     } catch (err) {
       log("Leerer Tisch konnte nicht geschlossen werden", { roomCode, error: err.message });
@@ -163,13 +168,32 @@ function acknowledge(ack, payload) {
   if (typeof ack === "function") ack(payload);
 }
 
+function publicLobbyState() {
+  return {
+    rooms: listPublicTables(),
+    benchmarkDecks: listBenchmarkDecks(),
+    benchmarkHighscores: getBenchmarkHighscores(),
+  };
+}
+
+function emitPublicLobbyState(force = false) {
+  const payload = publicLobbyState();
+  const fingerprint = JSON.stringify(payload);
+  if (!force && fingerprint === publicLobbyStateFingerprint) return;
+  publicLobbyStateFingerprint = fingerprint;
+  io.emit("publicRoomsUpdated", payload);
+}
+
 function emitRoomAndGame(room) {
   const publicState = publicRoom(room);
   scheduleEmptyTableCloseIfNeeded(room, publicState);
   scheduleDisconnectedBotAdvanceIfNeeded(room);
   warnLargeWsPayload("roomUpdated", room.roomCode, publicState);
   io.to(room.roomCode).emit("roomUpdated", publicState);
-  if (room.status !== "playing" || !room.game) return;
+  if (room.status !== "playing" || !room.game) {
+    emitPublicLobbyState();
+    return;
+  }
 
   for (const seat of room.seats) {
     if (seat.type === "human" && seat.socketId) {
@@ -193,6 +217,8 @@ function emitRoomAndGame(room) {
       io.to(spectatorSocketId).emit("gameUpdated", spectatorPayload);
     }
   }
+
+  emitPublicLobbyState();
 }
 
 function emitRoomAndGameByCode(roomCode) {
@@ -412,6 +438,13 @@ io.on("connection", (socket) => {
     socketId: socket.id,
     message: "Mit dem Wuzz-Server verbunden.",
     features: { easyMode: EASY_MODE_FEATURE_ENABLED },
+    benchmarkDecks: listBenchmarkDecks(),
+    benchmarkHighscores: getBenchmarkHighscores(),
+  });
+  socket.emit("publicRoomsUpdated", publicLobbyState());
+
+  socket.on("listPublicRooms", (_payload = {}, ack) => {
+    acknowledge(ack, { ok: true, ...publicLobbyState() });
   });
 
   socket.on("createRoom", (payload = {}, ack) => {
@@ -515,8 +548,11 @@ io.on("connection", (socket) => {
         showPenaltyTracker: payload.showPenaltyTracker,
         easyMode: payload.easyMode,
         quickGame: payload.quickGame,
+        publicTable: payload.publicTable,
+        benchmarkDeckId: payload.benchmarkDeckId,
       });
       io.to(room.roomCode).emit("roomUpdated", room);
+      emitPublicLobbyState();
       acknowledge(ack, { ok: true, room });
     } catch (err) {
       sendError(socket, err.message);
@@ -665,6 +701,7 @@ io.on("connection", (socket) => {
       socket.leave(String(payload.roomCode || "").trim().toUpperCase());
       if (result.closed) {
         io.to(result.roomCode).emit("roomClosed", { message: "Der Host hat die Lobby verlassen. Der Tisch wurde geschlossen." });
+        emitPublicLobbyState();
       } else {
         emitRoomAndGameByCode(result.room.roomCode);
         scheduleAdvance(result.room.roomCode, false);
@@ -682,6 +719,7 @@ io.on("connection", (socket) => {
     for (const result of results) {
       if (result.closed) {
         io.to(result.roomCode).emit("roomClosed", { message: "Der Host wurde getrennt. Die Lobby wurde geschlossen." });
+        emitPublicLobbyState();
       } else {
         try {
           emitRoomAndGameByCode(result.room.roomCode);
@@ -700,6 +738,7 @@ setInterval(() => {
     clearDisconnectedBotAdvanceTimer(roomCode);
     io.to(roomCode).emit("roomClosed", { message: "Der Tisch wurde wegen Inaktivität geschlossen." });
   }
+  emitPublicLobbyState();
 }, EXPIRY_SWEEP_MS).unref?.();
 
 httpServer.listen(PORT, () => {

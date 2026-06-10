@@ -7,9 +7,17 @@ import {
   getValidCards,
 } from "../shared/game/engine.js";
 import { heuristicQuetschPick, chooseHeuristicCard, recommendHeuristicCards, recommendHeuristicQuetschCards } from "../shared/game/heuristicBot.js";
-import { sameCard, sortHand, cardPts, isPenalty } from "../shared/game/cards.js";
+import { sameCard, sortHand, cardPts, isPenalty, makeSeededRng } from "../shared/game/cards.js";
+import {
+  BENCHMARK_DECKS,
+  FIXED_BENCHMARK_ROUNDS,
+  benchmarkRoundSeed,
+  getBenchmarkDeck,
+  normalizeBenchmarkDeckId,
+} from "../shared/game/benchmarkDecks.js";
 
 const rooms = new Map();
+const benchmarkHighscores = new Map();
 const GAMES_PER_RUNDE = 4;
 const DEFAULT_MATCH_RUNDEN = Number(process.env.DEFAULT_MATCH_RUNDEN || 1);
 const MAX_ROUNDS = GAMES_PER_RUNDE * (DEFAULT_MATCH_RUNDEN === 1 ? 1 : 2);
@@ -68,7 +76,17 @@ const BOT_FIRST_NAMES = [
   "Ursula",
   "Else",
   "Ingrid",
-  "Günther"
+  "Günther",
+  "Vollrath",
+  "Millicent",
+  "Jaspar",
+  "Hasso",
+  "Bia",
+  "Asta",
+  "Thora",
+  "Benedikt",
+  "Mary",
+  "Dorothea",
 ];
 function randomBotName(room) {
   const usedBase = new Set((room?.seats || []).map(s => String(s.name || '').replace(/\s*\(B\)$/, '')));
@@ -143,11 +161,14 @@ function normalizeMatchRutschen(value) {
 }
 
 function defaultRoomSettings(settings = {}) {
+  const benchmarkDeckId = normalizeBenchmarkDeckId(settings.benchmarkDeckId);
   return {
-    matchRutschen: normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
+    matchRutschen: benchmarkDeckId ? 2 : normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
     showPenaltyTracker: settings.showPenaltyTracker !== false,
     easyMode: settings.easyMode === true,
     quickGame: settings.quickGame === true,
+    publicTable: settings.publicTable === true,
+    benchmarkDeckId,
   };
 }
 
@@ -168,6 +189,7 @@ export function publicRoom(room) {
   return {
     roomCode: room.roomCode,
     hostSocketId: room.hostSocketId,
+    hostSeat: Number.isInteger(room.hostSeat) ? room.hostSeat : 0,
     status: room.status,
     seats: room.seats.map((s) => ({
       seat: s.seat,
@@ -193,6 +215,63 @@ function privateTokenForSocket(room, socketId) {
 
 export function publicRoomWithToken(room, socketId) {
   return { room: publicRoom(room), reconnectToken: privateTokenForSocket(room, socketId) };
+}
+
+export function listBenchmarkDecks() {
+  return BENCHMARK_DECKS.map((deck) => ({
+    id: deck.id,
+    name: deck.name,
+    description: deck.description,
+    rounds: FIXED_BENCHMARK_ROUNDS,
+  }));
+}
+
+export function getBenchmarkHighscores() {
+  const out = {};
+  for (const deck of BENCHMARK_DECKS) {
+    out[deck.id] = benchmarkHighscoreSnapshot(benchmarkHighscores.get(deck.id));
+  }
+  return out;
+}
+
+function roomHostName(room) {
+  const hostSeatIndex = Number.isInteger(room?.hostSeat) ? room.hostSeat : 0;
+  const originalHost = room?.seats?.[hostSeatIndex]?.name;
+  if (originalHost) return originalHost;
+  const connectedHost = room?.seats?.find((seat) => seat.socketId && seat.socketId === room.hostSocketId)?.name;
+  if (connectedHost) return connectedHost;
+  return room?.seats?.find((seat) => seat.type === "human" && seat.name)?.name || "Host";
+}
+
+export function listPublicTables() {
+  return [...rooms.values()]
+    .filter((room) => room.status === "playing" && room.game && defaultRoomSettings(room.settings).publicTable)
+    .map((room) => {
+      const settings = defaultRoomSettings(room.settings);
+      const deck = getBenchmarkDeck(settings.benchmarkDeckId);
+      const highscore = deck ? benchmarkHighscoreSnapshot(benchmarkHighscores.get(deck.id)) : null;
+      return {
+        roomCode: room.roomCode,
+        status: room.status,
+        hostName: roomHostName(room),
+        humanPlayers: room.seats.filter((seat) => seat.type === "human").length,
+        connectedHumanPlayers: room.seats.filter((seat) => seat.type === "human" && Boolean(seat.socketId)).length,
+        availableBotSeats: room.seats.filter((seat) => seat.type === "bot").length,
+        spectatorCount: room.spectators?.size || 0,
+        round: Number(room.game?.round || 1),
+        maxRounds: Number(room.game?.maxRounds || 1),
+        phase: room.game?.phase || null,
+        startedAt: room.startedAt || room.createdAt,
+        benchmarkDeck: deck ? {
+          id: deck.id,
+          name: deck.name,
+          description: deck.description,
+          rounds: FIXED_BENCHMARK_ROUNDS,
+          highscore,
+        } : null,
+      };
+    })
+    .sort((a, b) => Number(b.startedAt || 0) - Number(a.startedAt || 0));
 }
 
 function findSeatForSocket(room, socketId) {
@@ -271,17 +350,28 @@ function validateCardsInHand(hand, cards, requiredCount) {
   return out;
 }
 
+function dealRoundForSettings(settings, round, dealer) {
+  const roomSettings = defaultRoomSettings(settings);
+  if (roomSettings.benchmarkDeckId) {
+    const seed = benchmarkRoundSeed(roomSettings.benchmarkDeckId, round);
+    if (seed !== null) return dealRound(dealer, makeSeededRng(seed));
+  }
+  return dealRound(dealer);
+}
+
 function createGameState(dealer, settings = {}) {
   const roomSettings = defaultRoomSettings(settings);
+  const benchmarkDeck = getBenchmarkDeck(roomSettings.benchmarkDeckId);
   return {
     round: 1,
-    maxRounds: GAMES_PER_RUNDE * roomSettings.matchRutschen,
+    maxRounds: benchmarkDeck ? FIXED_BENCHMARK_ROUNDS : GAMES_PER_RUNDE * roomSettings.matchRutschen,
     matchRutschen: roomSettings.matchRutschen,
+    benchmarkDeckId: benchmarkDeck?.id || null,
     scores: [0, 0, 0, 0],
     scoreHistory: [{ round: 0, roundPts: [0, 0, 0, 0], totalScores: [0, 0, 0, 0] }],
     dealer,
     phase: "quetsch", // "quetsch" | "quetsch_review" | "trick_done" | "rest_claim_pending" | "rest_claim_reveal" | "play" | "round_done" | "gameover"
-    gs: dealRound(dealer),
+    gs: dealRoundForSettings(roomSettings, 1, dealer),
     quetschSelections: [null, null, null, null],
     quetschReceived: [[], [], [], []],
     quetschReviewUntil: null,
@@ -458,6 +548,50 @@ function finishTrickReview(room) {
   return true;
 }
 
+function benchmarkHighscoreSnapshot(entry) {
+  if (!entry) return null;
+  return {
+    deckId: entry.deckId,
+    deckName: entry.deckName,
+    playerName: entry.playerName,
+    seat: entry.seat,
+    score: entry.score,
+    completedAt: entry.completedAt,
+    roomCode: entry.roomCode,
+    humanPlayers: entry.humanPlayers,
+  };
+}
+
+function maybeRecordBenchmarkHighscore(room) {
+  const game = room?.game;
+  const deck = getBenchmarkDeck(game?.benchmarkDeckId);
+  if (!deck || game?.phase !== "gameover") return false;
+  if (Number(game.round || 0) < FIXED_BENCHMARK_ROUNDS) return false;
+
+  const candidates = room.seats
+    .filter((seat) => seat.type === "human")
+    .map((seat) => ({
+      deckId: deck.id,
+      deckName: deck.name,
+      playerName: seat.name || ("Platz " + (seat.seat + 1)),
+      seat: seat.seat,
+      score: Number(game.scores?.[seat.seat] || 0),
+      completedAt: Date.now(),
+      roomCode: room.roomCode,
+      humanPlayers: room.seats.filter((s) => s.type === "human").length,
+    }))
+    .sort((a, b) => b.score - a.score || a.seat - b.seat);
+
+  const candidate = candidates[0] || null;
+  if (!candidate) return false;
+
+  const current = benchmarkHighscores.get(deck.id);
+  if (current && Number(current.score || 0) >= candidate.score) return false;
+  benchmarkHighscores.set(deck.id, candidate);
+  log("Benchmark-Highscore aktualisiert", { deckId: deck.id, playerName: candidate.playerName, score: candidate.score });
+  return true;
+}
+
 function finishRound(room) {
   const game = room.game;
   const gs = game.gs;
@@ -483,6 +617,7 @@ function finishRound(room) {
 
   if (game.round >= game.maxRounds) {
     game.phase = "gameover";
+    maybeRecordBenchmarkHighscore(room);
     log("Spiel beendet", { roomCode: room.roomCode, scores: game.scores });
     return;
   }
@@ -1035,10 +1170,12 @@ export function createRoom({ hostSocketId, name, settings = {} }) {
   const room = {
     roomCode,
     hostSocketId,
+    hostSeat: 0,
     status: "lobby",
     seats,
     createdAt: Date.now(),
     lastActivity: Date.now(),
+    startedAt: null,
     settings: defaultRoomSettings(settings),
     spectators: new Set(),
     game: null,
@@ -1197,7 +1334,7 @@ export function setSeatOpen({ roomCode, socketId, seat }) {
   return publicRoom(room);
 }
 
-export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker, easyMode, quickGame }) {
+export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenaltyTracker, easyMode, quickGame, publicTable, benchmarkDeckId }) {
   const room = requireRoom(roomCode);
   assertLobby(room);
   requireHost(room, socketId);
@@ -1206,6 +1343,9 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
   if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
   if (easyMode !== undefined) next.easyMode = easyMode === true;
   if (quickGame !== undefined) next.quickGame = quickGame === true;
+  if (publicTable !== undefined) next.publicTable = publicTable === true;
+  if (benchmarkDeckId !== undefined) next.benchmarkDeckId = normalizeBenchmarkDeckId(benchmarkDeckId);
+  if (next.benchmarkDeckId) next.matchRutschen = 2;
   room.settings = next;
   log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
   return publicRoom(room);
@@ -1213,9 +1353,11 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
 
 
 function startFreshGameForSameSeats(room, settings = room.settings) {
-  const dealer = Math.floor(Math.random() * 4);
+  const normalizedSettings = defaultRoomSettings(settings);
+  const dealer = normalizedSettings.benchmarkDeckId ? 0 : Math.floor(Math.random() * 4);
   room.status = "playing";
-  room.game = createGameState(dealer, settings);
+  room.startedAt = Date.now();
+  room.game = createGameState(dealer, normalizedSettings);
   advanceNonCardPhases(room);
   return room;
 }
@@ -1248,15 +1390,19 @@ export function startNextOnlineRound({ roomCode, socketId, continueMatch = false
   }
 
   const game = room.game;
+  if (game.benchmarkDeckId && continuingFinishedMatch) {
+    throw new Error("Benchmark-Spiele bestehen immer aus genau 8 Spielen.");
+  }
   if (continuingFinishedMatch) {
     game.maxRounds = Math.max(Number(game.maxRounds || 0), Number(game.round || 0)) + GAMES_PER_RUNDE;
     game.matchRutschen = Math.ceil(game.maxRounds / GAMES_PER_RUNDE);
   }
+  const settings = defaultRoomSettings(room.settings);
   const nextDealer = (game.dealer + 1) % 4;
   game.round += 1;
   game.dealer = nextDealer;
   game.phase = "quetsch";
-  game.gs = dealRound(nextDealer);
+  game.gs = dealRoundForSettings(settings, game.round, nextDealer);
   game.quetschSelections = [null, null, null, null];
   game.quetschReceived = [[], [], [], []];
   game.quetschReviewUntil = null;
@@ -1493,6 +1639,8 @@ export function getPrivateGameView(room, socketId) {
     ...game.lastRound,
     spielLog: includeSpielReview ? sanitizeSpielLog(game.lastRound.spielLog) : [],
   } : null;
+  const benchmarkDeck = getBenchmarkDeck(game.benchmarkDeckId);
+  const benchmarkHighscore = benchmarkDeck ? benchmarkHighscoreSnapshot(benchmarkHighscores.get(benchmarkDeck.id)) : null;
   return {
     phase: game.phase,
     yourSeat: seatIndex,
@@ -1502,6 +1650,13 @@ export function getPrivateGameView(room, socketId) {
     showPenaltyTracker: settings.showPenaltyTracker,
     easyMode: settings.easyMode,
     quickGame: settings.quickGame,
+    benchmarkDeck: benchmarkDeck ? {
+      id: benchmarkDeck.id,
+      name: benchmarkDeck.name,
+      description: benchmarkDeck.description,
+      rounds: FIXED_BENCHMARK_ROUNDS,
+    } : null,
+    benchmarkHighscore,
     suggestion,
     quetschSuggestion,
     canClaimRest,
@@ -1542,7 +1697,7 @@ export function getPrivateGameView(room, socketId) {
     lastRound: lastRoundForView,
     cardPointPreview: hand.reduce((acc, c) => ({ ...acc, [`${c.s}${c.v}`]: cardPts(c) }), {}),
     canStartNextRound: game.phase === "round_done" && seatIndex !== null && (room.hostSocketId === socketId || !room.hostSocketId),
-    canContinueMatch: canHostControlFinishedMatch,
+    canContinueMatch: canHostControlFinishedMatch && !benchmarkDeck,
     canRestartMatch: canHostControlFinishedMatch,
   };
 }

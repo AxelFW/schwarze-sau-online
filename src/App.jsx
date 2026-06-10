@@ -79,7 +79,17 @@ const OLD_GERMAN_FIRST_NAMES = [
   "Ingrid",
   "Sigrun",
   "Egbert",
-  "Agnes"
+  "Agnes",
+  "Vollrath",
+  "Millicent",
+  "Jaspar",
+  "Hasso",
+  "Bia",
+  "Asta",
+  "Thora",
+  "Benedikt",
+  "Mary",
+  "Dorothea",
 ];
 const randomFirstName = (used = []) => {
   const usedBase = new Set(used.map(n => String(n || '').replace(/\s*\(B\)$/, '')));

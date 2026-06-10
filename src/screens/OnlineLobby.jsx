@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { socket } from "../multiplayer/socketClient.js";
 import { SYM, VN, isRed, sameCard, cardPts, unplayedPenaltyCards } from "../../shared/game/cards.js";
+import { BENCHMARK_DECKS, FIXED_BENCHMARK_ROUNDS } from "../../shared/game/benchmarkDecks.js";
 
 const envFlagEnabled = (value) =>
   value === undefined || value === null || String(value).trim().toLowerCase() !== "false";
@@ -59,7 +60,17 @@ const OLD_GERMAN_FIRST_NAMES = [
   "Ingrid",
   "Sigrun",
   "Egbert",
-  "Agnes"
+  "Agnes",
+  "Vollrath",
+  "Millicent",
+  "Jaspar",
+  "Hasso",
+  "Bia",
+  "Asta",
+  "Thora",
+  "Benedikt",
+  "Mary",
+  "Dorothea",
 ];
 const randomFirstName = (used = []) => {
   const usedBase = new Set(used.map(n => String(n || '').replace(/\s*\(B\)$/, '')));
@@ -236,6 +247,110 @@ function loadReconnect() {
 
 function clearReconnect() {
   localStorage.removeItem(RECONNECT_KEY);
+}
+
+function highscoreText(entry) {
+  if (!entry) return "noch kein Highscore";
+  const seat = Number.isInteger(entry.seat) ? " · Platz " + (entry.seat + 1) : "";
+  return `${entry.playerName || "Spieler"}${seat}: ${entry.score} Punkte`;
+}
+
+function BenchmarkHighscoreLine({ deckId, highscores }) {
+  if (!deckId) return null;
+  const entry = highscores?.[deckId] || null;
+  return (
+    <div style={{ color: "rgba(255,255,255,0.58)", fontSize: 12, marginTop: 6 }}>
+      Aktueller Highscore: <span style={{ color: entry ? "#f4c430" : "rgba(255,255,255,0.45)", fontWeight: entry ? "bold" : "normal" }}>{highscoreText(entry)}</span>
+    </div>
+  );
+}
+
+function BenchmarkGameLine({ game }) {
+  if (!game?.benchmarkDeck) return null;
+  return (
+    <div style={{ color: "rgba(255,255,255,0.62)", fontSize: 13, textAlign: "center", marginTop: 6 }}>
+      Benchmark: <span style={{ color: "#bfdbfe", fontWeight: "bold" }}>{game.benchmarkDeck.name}</span>
+      {" · "}feste {game.benchmarkDeck.rounds || FIXED_BENCHMARK_ROUNDS} Spiele
+      {" · "}Highscore: <span style={{ color: game.benchmarkHighscore ? "#f4c430" : "rgba(255,255,255,0.42)", fontWeight: game.benchmarkHighscore ? "bold" : "normal" }}>{highscoreText(game.benchmarkHighscore)}</span>
+    </div>
+  );
+}
+
+function BenchmarkHighscoresPanel({ highscores }) {
+  return (
+    <div style={{ display: "grid", gap: 8, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <div>
+        <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>BENCHMARK-HIGHSCORES</div>
+        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 3 }}>
+          Feste 8-Spiele-Decks ohne zufälliges Geben.
+        </div>
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {BENCHMARK_DECKS.map((deck) => {
+          const entry = highscores?.[deck.id] || null;
+          return (
+            <div key={deck.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, alignItems: "baseline", padding: "7px 8px", borderRadius: 9, background: "rgba(0,0,0,0.14)" }}>
+              <span style={{ minWidth: 0, color: "#bfdbfe", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{deck.name}</span>
+              <span style={{ color: entry ? "#f4c430" : "rgba(255,255,255,0.38)", fontSize: 12, textAlign: "right" }}>{highscoreText(entry)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PublicTablesPanel({ tables, connected, onJoin, onRefresh }) {
+  const rows = Array.isArray(tables) ? tables : [];
+  return (
+    <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>ÖFFENTLICHE TISCHE</div>
+          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 3 }}>
+            Laufende öffentliche Spiele, denen du beitreten oder bei denen du zuschauen kannst.
+          </div>
+        </div>
+        <Button onClick={onRefresh} disabled={!connected} style={{ padding: "7px 11px", background: "rgba(255,255,255,0.12)", color: "white" }}>
+          Aktualisieren
+        </Button>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ color: "rgba(255,255,255,0.42)", fontSize: 13, padding: "6px 0" }}>
+          Gerade läuft kein öffentlicher Tisch.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {rows.map((table) => (
+            <div key={table.roomCode} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: 11, borderRadius: 11, background: "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+                  <strong style={{ color: "#f4c430" }}>{table.roomCode}</strong>
+                  <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(244,196,48,0.12)", border: "1px solid rgba(244,196,48,0.28)", color: "#f4c430" }}>läuft</span>
+                  {table.benchmarkDeck && (
+                    <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.28)", color: "#bfdbfe" }}>
+                      Benchmark: {table.benchmarkDeck.name}
+                    </span>
+                  )}
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  Host: {table.hostName || "Host"} · Menschen: {table.humanPlayers}/4 · Spiel {table.round}/{table.maxRounds}
+                </div>
+                {table.benchmarkDeck?.highscore && (
+                  <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12, marginTop: 3 }}>
+                    Highscore {table.benchmarkDeck.name}: {highscoreText(table.benchmarkDeck.highscore)}
+                  </div>
+                )}
+              </div>
+              <Button onClick={() => onJoin(table.roomCode)} disabled={!connected} style={{ padding: "8px 12px" }}>
+                Beitreten
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ScoreStrip({ game }) {
@@ -938,6 +1053,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
     return (
       <div style={{ marginTop: 22 }}>
         <h2 style={{ color: "#f4c430", textAlign: "center" }}>Rutschenende</h2>
+        <BenchmarkGameLine game={game} />
         {ranked.map((p, i) => (
           <div key={p.seat} style={{ display: "flex", justifyContent: "space-between", padding: 13, marginTop: 8, borderRadius: 12, background: i === 0 ? "rgba(244,196,48,0.12)" : "rgba(255,255,255,0.06)" }}>
             <span>{medals[i]} {p.type === "human" ? "👤" : "🧠"} {p.name}{p.score < -100 ? " 🥳" : ""}</span>
@@ -966,6 +1082,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
     return (
       <div style={{ marginTop: 22 }}>
         <h2 style={{ color: "#f4c430", textAlign: "center" }}>Spiel {summary?.round ?? game.round} beendet</h2>
+        <BenchmarkGameLine game={game} />
         <div style={{ color: "#6dbf8a", textAlign: "center", marginBottom: 16 }}>
           Spielergebnis und Gesamtstand
         </div>
@@ -1009,6 +1126,11 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
         <div>
           <div style={{ color: "rgba(255,255,255,0.55)" }}>Tisch {room.roomCode}</div>
           <h2 style={{ color: "#f4c430", margin: "4px 0" }}>Wuzz · Spiel {game.round}/{game.maxRounds} · Rutsche {Math.ceil(game.round / 4)}/{game.matchRutschen ?? Math.ceil(game.maxRounds / 4)}</h2>
+          {game.benchmarkDeck && (
+            <div style={{ color: "rgba(255,255,255,0.58)", fontSize: 13 }}>
+              Benchmark: <span style={{ color: "#bfdbfe", fontWeight: "bold" }}>{game.benchmarkDeck.name}</span> · feste {game.benchmarkDeck.rounds || FIXED_BENCHMARK_ROUNDS} Spiele
+            </div>
+          )}
         </div>
         <div style={{ color: "rgba(255,255,255,0.7)", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <span>Dein Sitz: {game.yourSeat === null ? "Zuschauer" : `Sitz ${game.yourSeat + 1}`}</span>
@@ -1240,10 +1362,14 @@ export default function OnlineLobby({ onBack }) {
   const [preferredShowPenaltyTracker, setPreferredShowPenaltyTracker] = useState(true);
   const [preferredEasyMode, setPreferredEasyMode] = useState(INITIAL_EASY_MODE_FROM_URL === true);
   const [preferredQuickGame, setPreferredQuickGame] = useState(false);
+  const [preferredPublicTable, setPreferredPublicTable] = useState(false);
+  const [preferredBenchmarkDeckId, setPreferredBenchmarkDeckId] = useState("");
   const [easyModeOptionVisible, setEasyModeOptionVisible] = useState(EASY_MODE_OPTION_VISIBLE);
   const [joinCode, setJoinCode] = useState("");
   const [room, setRoom] = useState(null);
   const [game, setGame] = useState(null);
+  const [publicTables, setPublicTables] = useState([]);
+  const [benchmarkHighscores, setBenchmarkHighscores] = useState({});
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -1260,6 +1386,12 @@ export default function OnlineLobby({ onBack }) {
           saveReconnect(res.room?.roomCode, res.reconnectToken);
         }
       }
+
+      const lobby = await emitAck("listPublicRooms", {});
+      if (Array.isArray(lobby?.rooms)) setPublicTables(lobby.rooms);
+      if (lobby?.benchmarkHighscores && typeof lobby.benchmarkHighscores === "object") {
+        setBenchmarkHighscores(lobby.benchmarkHighscores);
+      }
     };
 
     const onDisconnect = () => {
@@ -1273,6 +1405,16 @@ export default function OnlineLobby({ onBack }) {
         // Server uses this flag only to tell the client whether the checkbox should be visible.
         // Do not reset preferredEasyMode here: URL-enabled hidden Easy Mode must stay possible.
         setEasyModeOptionVisible(Boolean(msg.features.easyMode));
+      }
+      if (msg.benchmarkHighscores && typeof msg.benchmarkHighscores === "object") {
+        setBenchmarkHighscores(msg.benchmarkHighscores);
+      }
+    };
+
+    const onPublicRoomsUpdated = (payload = {}) => {
+      if (Array.isArray(payload.rooms)) setPublicTables(payload.rooms);
+      if (payload.benchmarkHighscores && typeof payload.benchmarkHighscores === "object") {
+        setBenchmarkHighscores(payload.benchmarkHighscores);
       }
     };
 
@@ -1304,6 +1446,7 @@ export default function OnlineLobby({ onBack }) {
     socket.on("serverHello", onHello);
     socket.on("roomUpdated", onRoomUpdated);
     socket.on("gameUpdated", onGameUpdated);
+    socket.on("publicRoomsUpdated", onPublicRoomsUpdated);
     socket.on("roomError", onRoomError);
     socket.on("roomClosed", onRoomClosed);
 
@@ -1313,6 +1456,7 @@ export default function OnlineLobby({ onBack }) {
       socket.off("serverHello", onHello);
       socket.off("roomUpdated", onRoomUpdated);
       socket.off("gameUpdated", onGameUpdated);
+      socket.off("publicRoomsUpdated", onPublicRoomsUpdated);
       socket.off("roomError", onRoomError);
       socket.off("roomClosed", onRoomClosed);
     };
@@ -1335,11 +1479,47 @@ export default function OnlineLobby({ onBack }) {
     return !!room && isHost && room.status === "lobby" && room.seats.every((s) => s.type === "human" || s.type === "bot");
   }, [room, isHost]);
 
+  const selectedBenchmarkDeckId = room?.settings?.benchmarkDeckId || preferredBenchmarkDeckId || "";
+  const selectedBenchmarkDeck = BENCHMARK_DECKS.find((deck) => deck.id === selectedBenchmarkDeckId) || null;
+  const benchmarkMode = Boolean(selectedBenchmarkDeckId);
+  const activeMatchRutschen = benchmarkMode ? 2 : (room?.settings?.matchRutschen ?? preferredMatchRutschen);
+  const activePublicTable = room?.settings?.publicTable ?? preferredPublicTable;
+
   async function createRoom() {
     setError("");
-    const res = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode, quickGame: preferredQuickGame } });
+    const res = await emitAck("createRoom", {
+      name,
+      settings: {
+        matchRutschen: benchmarkMode ? 2 : preferredMatchRutschen,
+        showPenaltyTracker: preferredShowPenaltyTracker,
+        easyMode: preferredEasyMode,
+        quickGame: preferredQuickGame,
+        publicTable: preferredPublicTable,
+        benchmarkDeckId: preferredBenchmarkDeckId || null,
+      },
+    });
     if (res?.ok) saveReconnect(res.room?.roomCode, res.reconnectToken);
     if (!res?.ok) setError(res?.message || "Tisch konnte nicht erstellt werden.");
+  }
+
+  async function refreshPublicRooms() {
+    const res = await emitAck("listPublicRooms", {});
+    if (!res?.ok) {
+      setError(res?.message || "Öffentliche Tische konnten nicht geladen werden.");
+      return;
+    }
+    if (Array.isArray(res.rooms)) setPublicTables(res.rooms);
+    if (res.benchmarkHighscores && typeof res.benchmarkHighscores === "object") {
+      setBenchmarkHighscores(res.benchmarkHighscores);
+    }
+  }
+
+  async function joinPublicRoom(roomCode) {
+    setError("");
+    const code = String(roomCode || "").trim().toUpperCase();
+    if (!code) return;
+    const res = await emitAck("joinRoom", { roomCode: code, name });
+    if (!res?.ok) setError(res?.message || "Öffentlicher Tisch konnte nicht betreten werden.");
   }
 
   async function joinRoom() {
@@ -1396,16 +1576,22 @@ export default function OnlineLobby({ onBack }) {
   }
 
   async function updateRoomSettings(nextSettings) {
+    const hasBenchmarkDeckId = Object.prototype.hasOwnProperty.call(nextSettings, "benchmarkDeckId");
     const merged = {
       matchRutschen: nextSettings.matchRutschen ?? preferredMatchRutschen,
       showPenaltyTracker: nextSettings.showPenaltyTracker ?? preferredShowPenaltyTracker,
       easyMode: nextSettings.easyMode ?? preferredEasyMode,
       quickGame: nextSettings.quickGame ?? preferredQuickGame,
+      publicTable: nextSettings.publicTable ?? preferredPublicTable,
+      benchmarkDeckId: hasBenchmarkDeckId ? (nextSettings.benchmarkDeckId || null) : (preferredBenchmarkDeckId || null),
     };
+    if (merged.benchmarkDeckId) merged.matchRutschen = 2;
     setPreferredMatchRutschen(merged.matchRutschen);
     setPreferredShowPenaltyTracker(merged.showPenaltyTracker);
     setPreferredEasyMode(merged.easyMode);
     setPreferredQuickGame(merged.quickGame);
+    setPreferredPublicTable(merged.publicTable);
+    setPreferredBenchmarkDeckId(merged.benchmarkDeckId || "");
     if (!room) return;
     const res = await emitAck("setRoomSettings", { roomCode: room.roomCode, ...merged });
     if (!res?.ok) setError(res?.message || "Einstellungen konnten nicht geändert werden.");
@@ -1422,7 +1608,17 @@ export default function OnlineLobby({ onBack }) {
 
   async function startSoloGame() {
     setError("");
-    const created = await emitAck("createRoom", { name, settings: { matchRutschen: preferredMatchRutschen, showPenaltyTracker: preferredShowPenaltyTracker, easyMode: preferredEasyMode, quickGame: preferredQuickGame } });
+    const created = await emitAck("createRoom", {
+      name,
+      settings: {
+        matchRutschen: benchmarkMode ? 2 : preferredMatchRutschen,
+        showPenaltyTracker: preferredShowPenaltyTracker,
+        easyMode: preferredEasyMode,
+        quickGame: preferredQuickGame,
+        publicTable: preferredPublicTable,
+        benchmarkDeckId: preferredBenchmarkDeckId || null,
+      },
+    });
     if (!created?.ok) {
       setError(created?.message || "Solo-Spiel konnte nicht erstellt werden.");
       return;
@@ -1499,9 +1695,44 @@ export default function OnlineLobby({ onBack }) {
             <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)" }}>
               <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>SPIELDAUER</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Button onClick={() => { setPreferredMatchRutschen(1); if (room) updateRoomSettings({ matchRutschen: 1 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "#1a1a1a" : "white" }}>1 Rutsche · 4 Spiele</Button>
-                <Button onClick={() => { setPreferredMatchRutschen(2); if (room) updateRoomSettings({ matchRutschen: 2 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "#1a1a1a" : "white" }}>2 Rutschen · 8 Spiele</Button>
+                <Button disabled={benchmarkMode} onClick={() => { setPreferredMatchRutschen(1); if (room) updateRoomSettings({ matchRutschen: 1 }); }} style={{ padding: "8px 12px", background: activeMatchRutschen === 1 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: activeMatchRutschen === 1 ? "#1a1a1a" : "white" }}>1 Rutsche · 4 Spiele</Button>
+                <Button disabled={benchmarkMode} onClick={() => { setPreferredMatchRutschen(2); if (room) updateRoomSettings({ matchRutschen: 2 }); }} style={{ padding: "8px 12px", background: activeMatchRutschen === 2 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: activeMatchRutschen === 2 ? "#1a1a1a" : "white" }}>2 Rutschen · 8 Spiele</Button>
               </div>
+              {benchmarkMode && (
+                <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>
+                  Benchmark-Modus nutzt immer 8 feste Spiele.
+                </div>
+              )}
+              <label style={{ display: "grid", gap: 5, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                Benchmark-Deck
+                <select
+                  value={selectedBenchmarkDeckId}
+                  onChange={(e) => updateRoomSettings({ benchmarkDeckId: e.target.value || null, matchRutschen: e.target.value ? 2 : preferredMatchRutschen })}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.08)",
+                    color: "white",
+                    fontFamily: "Georgia,serif",
+                    fontSize: 14,
+                  }}
+                >
+                  <option value="">Zufällige Karten</option>
+                  {BENCHMARK_DECKS.map((deck) => (
+                    <option key={deck.id} value={deck.id}>{deck.name} · {FIXED_BENCHMARK_ROUNDS} Spiele</option>
+                  ))}
+                </select>
+                {selectedBenchmarkDeck && (
+                  <span style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>{selectedBenchmarkDeck.description}</span>
+                )}
+                <BenchmarkHighscoreLine deckId={selectedBenchmarkDeckId} highscores={benchmarkHighscores} />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                <input type="checkbox" checked={activePublicTable} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
+                Tisch nach Spielstart öffentlich auf der Startseite anzeigen
+              </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
@@ -1526,6 +1757,15 @@ export default function OnlineLobby({ onBack }) {
                 Spiel alleine
               </Button>
             </div>
+
+            <PublicTablesPanel
+              tables={publicTables}
+              connected={connected}
+              onJoin={joinPublicRoom}
+              onRefresh={refreshPublicRooms}
+            />
+
+            <BenchmarkHighscoresPanel highscores={benchmarkHighscores} />
 
             <div
               style={{
@@ -1588,9 +1828,44 @@ export default function OnlineLobby({ onBack }) {
                   <div style={{ display: "grid", gap: 10, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.045)", border: "1px solid rgba(255,255,255,0.08)" }}>
               <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>SPIELDAUER</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Button onClick={() => { setPreferredMatchRutschen(1); if (room) updateRoomSettings({ matchRutschen: 1 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 1 ? "#1a1a1a" : "white" }}>1 Rutsche · 4 Spiele</Button>
-                <Button onClick={() => { setPreferredMatchRutschen(2); if (room) updateRoomSettings({ matchRutschen: 2 }); }} style={{ padding: "8px 12px", background: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: (room?.settings?.matchRutschen ?? preferredMatchRutschen) === 2 ? "#1a1a1a" : "white" }}>2 Rutschen · 8 Spiele</Button>
+                <Button disabled={benchmarkMode} onClick={() => { setPreferredMatchRutschen(1); if (room) updateRoomSettings({ matchRutschen: 1 }); }} style={{ padding: "8px 12px", background: activeMatchRutschen === 1 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: activeMatchRutschen === 1 ? "#1a1a1a" : "white" }}>1 Rutsche · 4 Spiele</Button>
+                <Button disabled={benchmarkMode} onClick={() => { setPreferredMatchRutschen(2); if (room) updateRoomSettings({ matchRutschen: 2 }); }} style={{ padding: "8px 12px", background: activeMatchRutschen === 2 ? "linear-gradient(135deg,#f4c430,#d4a017)" : "rgba(255,255,255,0.12)", color: activeMatchRutschen === 2 ? "#1a1a1a" : "white" }}>2 Rutschen · 8 Spiele</Button>
               </div>
+              {benchmarkMode && (
+                <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>
+                  Benchmark-Modus nutzt immer 8 feste Spiele.
+                </div>
+              )}
+              <label style={{ display: "grid", gap: 5, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                Benchmark-Deck
+                <select
+                  value={selectedBenchmarkDeckId}
+                  onChange={(e) => updateRoomSettings({ benchmarkDeckId: e.target.value || null, matchRutschen: e.target.value ? 2 : preferredMatchRutschen })}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.08)",
+                    color: "white",
+                    fontFamily: "Georgia,serif",
+                    fontSize: 14,
+                  }}
+                >
+                  <option value="">Zufällige Karten</option>
+                  {BENCHMARK_DECKS.map((deck) => (
+                    <option key={deck.id} value={deck.id}>{deck.name} · {FIXED_BENCHMARK_ROUNDS} Spiele</option>
+                  ))}
+                </select>
+                {selectedBenchmarkDeck && (
+                  <span style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>{selectedBenchmarkDeck.description}</span>
+                )}
+                <BenchmarkHighscoreLine deckId={selectedBenchmarkDeckId} highscores={benchmarkHighscores} />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
+                <input type="checkbox" checked={activePublicTable} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
+                Tisch nach Spielstart öffentlich auf der Startseite anzeigen
+              </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen

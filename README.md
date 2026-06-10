@@ -57,5 +57,7 @@ QUETSCH_REVIEW_MS=2600
 - If the host disconnects during a running game, the game continues.
 - Disconnected human seats are temporarily controlled by the heuristic bot.
 - Bot card play has a small delay for a more tabletop-like feel.
+- Hosts can mark running games as public so they appear on the start page for joining or spectating.
+- Benchmark decks provide fixed 8-game deals with current server highscores per deck.
 - Online quetsch selection is parallel for all humans. After submitting, players see empty incoming-card slots while waiting.
 - After all quetsch cards are selected, each player briefly sees the three received cards before the first trick starts.
