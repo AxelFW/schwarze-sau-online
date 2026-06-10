@@ -276,22 +276,28 @@ function BenchmarkGameLine({ game }) {
   );
 }
 
-function BenchmarkHighscoresPanel({ highscores }) {
+function BenchmarkHighscoresPanel({ highscores, connected, onStartDeck }) {
   return (
     <div style={{ display: "grid", gap: 8, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
       <div>
         <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>BENCHMARK-HIGHSCORES</div>
         <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 3 }}>
-          Feste 8-Spiele-Decks ohne zufälliges Geben.
+          Feste 8-Spiele-Decks: immer du gegen drei Bots.
         </div>
       </div>
       <div style={{ display: "grid", gap: 6 }}>
         {BENCHMARK_DECKS.map((deck) => {
           const entry = highscores?.[deck.id] || null;
           return (
-            <div key={deck.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, alignItems: "baseline", padding: "7px 8px", borderRadius: 9, background: "rgba(0,0,0,0.14)" }}>
-              <span style={{ minWidth: 0, color: "#bfdbfe", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{deck.name}</span>
-              <span style={{ color: entry ? "#f4c430" : "rgba(255,255,255,0.38)", fontSize: 12, textAlign: "right" }}>{highscoreText(entry)}</span>
+            <div key={deck.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: "9px 10px", borderRadius: 9, background: "rgba(0,0,0,0.14)" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: "#bfdbfe", fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{deck.name}</div>
+                <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 2 }}>{deck.description}</div>
+                <div style={{ color: entry ? "#f4c430" : "rgba(255,255,255,0.38)", fontSize: 12, marginTop: 3 }}>{highscoreText(entry)}</div>
+              </div>
+              <Button onClick={() => onStartDeck(deck.id)} disabled={!connected} style={{ padding: "8px 12px" }}>
+                Benchmark starten
+              </Button>
             </div>
           );
         })}
@@ -1483,9 +1489,13 @@ export default function OnlineLobby({ onBack }) {
   const selectedBenchmarkDeck = BENCHMARK_DECKS.find((deck) => deck.id === selectedBenchmarkDeckId) || null;
   const benchmarkMode = Boolean(selectedBenchmarkDeckId);
   const activeMatchRutschen = benchmarkMode ? 2 : (room?.settings?.matchRutschen ?? preferredMatchRutschen);
-  const activePublicTable = room?.settings?.publicTable ?? preferredPublicTable;
+  const activePublicTable = benchmarkMode ? false : (room?.settings?.publicTable ?? preferredPublicTable);
 
   async function createRoom() {
+    if (benchmarkMode) {
+      await startSoloGame(selectedBenchmarkDeckId);
+      return;
+    }
     setError("");
     const res = await emitAck("createRoom", {
       name,
@@ -1494,7 +1504,7 @@ export default function OnlineLobby({ onBack }) {
         showPenaltyTracker: preferredShowPenaltyTracker,
         easyMode: preferredEasyMode,
         quickGame: preferredQuickGame,
-        publicTable: preferredPublicTable,
+        publicTable: benchmarkMode ? false : preferredPublicTable,
         benchmarkDeckId: preferredBenchmarkDeckId || null,
       },
     });
@@ -1585,7 +1595,10 @@ export default function OnlineLobby({ onBack }) {
       publicTable: nextSettings.publicTable ?? preferredPublicTable,
       benchmarkDeckId: hasBenchmarkDeckId ? (nextSettings.benchmarkDeckId || null) : (preferredBenchmarkDeckId || null),
     };
-    if (merged.benchmarkDeckId) merged.matchRutschen = 2;
+    if (merged.benchmarkDeckId) {
+      merged.matchRutschen = 2;
+      merged.publicTable = false;
+    }
     setPreferredMatchRutschen(merged.matchRutschen);
     setPreferredShowPenaltyTracker(merged.showPenaltyTracker);
     setPreferredEasyMode(merged.easyMode);
@@ -1606,17 +1619,26 @@ export default function OnlineLobby({ onBack }) {
     if (!res?.ok) setError(res?.message || "Platz konnte nicht geöffnet werden.");
   }
 
-  async function startSoloGame() {
+  async function startSoloGame(benchmarkDeckIdOverride = undefined) {
     setError("");
+    const benchmarkDeckId = benchmarkDeckIdOverride === undefined
+      ? (preferredBenchmarkDeckId || null)
+      : (benchmarkDeckIdOverride || null);
+    const isBenchmarkRun = Boolean(benchmarkDeckId);
+    if (isBenchmarkRun) {
+      setPreferredBenchmarkDeckId(benchmarkDeckId);
+      setPreferredMatchRutschen(2);
+      setPreferredPublicTable(false);
+    }
     const created = await emitAck("createRoom", {
       name,
       settings: {
-        matchRutschen: benchmarkMode ? 2 : preferredMatchRutschen,
+        matchRutschen: isBenchmarkRun ? 2 : preferredMatchRutschen,
         showPenaltyTracker: preferredShowPenaltyTracker,
         easyMode: preferredEasyMode,
         quickGame: preferredQuickGame,
-        publicTable: preferredPublicTable,
-        benchmarkDeckId: preferredBenchmarkDeckId || null,
+        publicTable: isBenchmarkRun ? false : preferredPublicTable,
+        benchmarkDeckId,
       },
     });
     if (!created?.ok) {
@@ -1634,6 +1656,10 @@ export default function OnlineLobby({ onBack }) {
     }
     const started = await emitAck("startGame", { roomCode });
     if (!started?.ok) setError(started?.message || "Solo-Spiel konnte nicht gestartet werden.");
+  }
+
+  async function startBenchmarkGame(deckId) {
+    await startSoloGame(deckId);
   }
 
   async function startGame() {
@@ -1730,9 +1756,14 @@ export default function OnlineLobby({ onBack }) {
                 <BenchmarkHighscoreLine deckId={selectedBenchmarkDeckId} highscores={benchmarkHighscores} />
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                <input type="checkbox" checked={activePublicTable} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
+                <input type="checkbox" checked={activePublicTable} disabled={benchmarkMode} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
                 Tisch nach Spielstart öffentlich auf der Startseite anzeigen
               </label>
+              {benchmarkMode && (
+                <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>
+                  Benchmark-Spiele sind fair vergleichbar: ein Mensch gegen drei Bots, nicht öffentlich beitretbar.
+                </div>
+              )}
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen
@@ -1749,14 +1780,25 @@ export default function OnlineLobby({ onBack }) {
               )}
             </div>
 
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <Button onClick={createRoom} disabled={!connected}>
-                Tisch eröffnen
-              </Button>
-              <Button onClick={startSoloGame} disabled={!connected}>
-                Spiel alleine
-              </Button>
-            </div>
+            {benchmarkMode ? (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                <Button onClick={() => startBenchmarkGame(selectedBenchmarkDeckId)} disabled={!connected || !selectedBenchmarkDeckId}>
+                  Benchmark starten
+                </Button>
+                <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>
+                  Startet direkt mit dir und drei Bots.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <Button onClick={createRoom} disabled={!connected}>
+                  Tisch eröffnen
+                </Button>
+                <Button onClick={() => startSoloGame()} disabled={!connected}>
+                  Spiel alleine
+                </Button>
+              </div>
+            )}
 
             <PublicTablesPanel
               tables={publicTables}
@@ -1765,7 +1807,7 @@ export default function OnlineLobby({ onBack }) {
               onRefresh={refreshPublicRooms}
             />
 
-            <BenchmarkHighscoresPanel highscores={benchmarkHighscores} />
+            <BenchmarkHighscoresPanel highscores={benchmarkHighscores} connected={connected} onStartDeck={startBenchmarkGame} />
 
             <div
               style={{
@@ -1863,9 +1905,14 @@ export default function OnlineLobby({ onBack }) {
                 <BenchmarkHighscoreLine deckId={selectedBenchmarkDeckId} highscores={benchmarkHighscores} />
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                <input type="checkbox" checked={activePublicTable} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
+                <input type="checkbox" checked={activePublicTable} disabled={benchmarkMode} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
                 Tisch nach Spielstart öffentlich auf der Startseite anzeigen
               </label>
+              {benchmarkMode && (
+                <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>
+                  Benchmark-Spiele sind fair vergleichbar: ein Mensch gegen drei Bots, nicht öffentlich beitretbar.
+                </div>
+              )}
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={room?.settings?.showPenaltyTracker ?? preferredShowPenaltyTracker} onChange={(e) => { setPreferredShowPenaltyTracker(e.target.checked); if (room) updateRoomSettings({ showPenaltyTracker: e.target.checked }); }} />
                 Offene Herzen/♠Q anzeigen

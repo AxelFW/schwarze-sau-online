@@ -167,7 +167,7 @@ function defaultRoomSettings(settings = {}) {
     showPenaltyTracker: settings.showPenaltyTracker !== false,
     easyMode: settings.easyMode === true,
     quickGame: settings.quickGame === true,
-    publicTable: settings.publicTable === true,
+    publicTable: benchmarkDeckId ? false : settings.publicTable === true,
     benchmarkDeckId,
   };
 }
@@ -1206,6 +1206,9 @@ export function spectateRoom({ roomCode, socketId }) {
 export function takeOverBotSeat({ roomCode, socketId, name, seat = null, reconnectToken = null }) {
   const room = requireRoom(roomCode);
   if (room.status !== "playing" || !room.game) throw new Error("Der Tisch spielt gerade nicht.");
+  if (room.game.benchmarkDeckId) {
+    throw new Error("Benchmark-Spiele sind nur für einen Menschen und drei Bots.");
+  }
   if (findSeatForSocket(room, socketId)) throw new Error("Du sitzt bereits an diesem Tisch.");
 
   const requestedSeat = seat === null || seat === undefined || seat === "" ? null : Number(seat);
@@ -1253,6 +1256,9 @@ export function takeOverBotSeat({ roomCode, socketId, name, seat = null, reconne
 export function claimSeat({ roomCode, socketId, name, seat }) {
   const room = requireRoom(roomCode);
   assertLobby(room);
+  if (defaultRoomSettings(room.settings).benchmarkDeckId) {
+    throw new Error("Benchmark-Spiele sind nur für einen Menschen und drei Bots.");
+  }
   const seatIndex = Number(seat);
   if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex > 3) throw new Error("Ungültiger Sitzplatz.");
   const target = room.seats[seatIndex];
@@ -1338,14 +1344,26 @@ export function setRoomSettings({ roomCode, socketId, matchRutschen, showPenalty
   const room = requireRoom(roomCode);
   assertLobby(room);
   requireHost(room, socketId);
+  const nextBenchmarkDeckId = benchmarkDeckId !== undefined ? normalizeBenchmarkDeckId(benchmarkDeckId) : defaultRoomSettings(room.settings).benchmarkDeckId;
+  if (nextBenchmarkDeckId) {
+    const nonHostHumans = room.seats.filter((seat) => (
+      seat.type === "human" && seat.socketId !== room.hostSocketId
+    ));
+    if (nonHostHumans.length) {
+      throw new Error("Benchmark kann nur gestartet werden, wenn nur der Host als Mensch am Tisch sitzt.");
+    }
+  }
   const next = defaultRoomSettings(room.settings);
   if (matchRutschen !== undefined) next.matchRutschen = normalizeMatchRutschen(matchRutschen);
   if (showPenaltyTracker !== undefined) next.showPenaltyTracker = showPenaltyTracker !== false;
   if (easyMode !== undefined) next.easyMode = easyMode === true;
   if (quickGame !== undefined) next.quickGame = quickGame === true;
   if (publicTable !== undefined) next.publicTable = publicTable === true;
-  if (benchmarkDeckId !== undefined) next.benchmarkDeckId = normalizeBenchmarkDeckId(benchmarkDeckId);
-  if (next.benchmarkDeckId) next.matchRutschen = 2;
+  if (benchmarkDeckId !== undefined) next.benchmarkDeckId = nextBenchmarkDeckId;
+  if (next.benchmarkDeckId) {
+    next.matchRutschen = 2;
+    next.publicTable = false;
+  }
   room.settings = next;
   log("Tischeinstellungen geändert", { roomCode: room.roomCode, settings: room.settings });
   return publicRoom(room);
@@ -1370,6 +1388,16 @@ export function startOnlineGame({ roomCode, socketId }) {
   if (openSeat) throw new Error("Alle Plätze müssen mit Menschen oder Bots besetzt sein.");
   const humanCount = room.seats.filter((s) => s.type === "human").length;
   if (humanCount < 1) throw new Error("Mindestens ein Mensch muss mitspielen.");
+  const settings = defaultRoomSettings(room.settings);
+  if (settings.benchmarkDeckId) {
+    if (humanCount !== 1 || room.seats.some((s) => s.type !== "human" && s.type !== "bot")) {
+      throw new Error("Benchmark-Spiele sind nur für einen Menschen und drei Bots.");
+    }
+    const hostSeat = room.seats.find((s) => s.type === "human");
+    if (!hostSeat || hostSeat.socketId !== room.hostSocketId) {
+      throw new Error("Benchmark-Spiele müssen vom einzigen menschlichen Spieler gestartet werden.");
+    }
+  }
   startFreshGameForSameSeats(room, room.settings);
   log("Spiel gestartet", { roomCode: room.roomCode, dealer: room.game?.dealer });
   return room;
