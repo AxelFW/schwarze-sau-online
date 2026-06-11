@@ -1419,7 +1419,7 @@ export function startNextOnlineRound({ roomCode, socketId, continueMatch = false
 
   const game = room.game;
   if (game.benchmarkDeckId && continuingFinishedMatch) {
-    throw new Error("Benchmark-Spiele bestehen immer aus genau 8 Spielen.");
+    throw new Error(`Benchmark-Spiele bestehen immer aus genau ${FIXED_BENCHMARK_ROUNDS} Spielen.`);
   }
   if (continuingFinishedMatch) {
     game.maxRounds = Math.max(Number(game.maxRounds || 0), Number(game.round || 0)) + GAMES_PER_RUNDE;

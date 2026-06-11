@@ -276,36 +276,6 @@ function BenchmarkGameLine({ game }) {
   );
 }
 
-function BenchmarkHighscoresPanel({ highscores, connected, onStartDeck }) {
-  return (
-    <div style={{ display: "grid", gap: 8, padding: 12, borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-      <div>
-        <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>BENCHMARK-HIGHSCORES</div>
-        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 3 }}>
-          Feste 8-Spiele-Decks: immer du gegen drei Bots.
-        </div>
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        {BENCHMARK_DECKS.map((deck) => {
-          const entry = highscores?.[deck.id] || null;
-          return (
-            <div key={deck.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: "9px 10px", borderRadius: 9, background: "rgba(0,0,0,0.14)" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ color: "#bfdbfe", fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{deck.name}</div>
-                <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 2 }}>{deck.description}</div>
-                <div style={{ color: entry ? "#f4c430" : "rgba(255,255,255,0.38)", fontSize: 12, marginTop: 3 }}>{highscoreText(entry)}</div>
-              </div>
-              <Button onClick={() => onStartDeck(deck.id)} disabled={!connected} style={{ padding: "8px 12px" }}>
-                Benchmark starten
-              </Button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function PublicTablesPanel({ tables, connected, onJoin, onRefresh }) {
   const rows = Array.isArray(tables) ? tables : [];
   return (
@@ -1726,11 +1696,11 @@ export default function OnlineLobby({ onBack }) {
               </div>
               {benchmarkMode && (
                 <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>
-                  Benchmark-Modus nutzt immer 8 feste Spiele.
+                  Benchmark-Modus nutzt immer {FIXED_BENCHMARK_ROUNDS} feste Spiele.
                 </div>
               )}
               <label style={{ display: "grid", gap: 5, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                Benchmark-Deck
+                Kartengebung
                 <select
                   value={selectedBenchmarkDeckId}
                   onChange={(e) => updateRoomSettings({ benchmarkDeckId: e.target.value || null, matchRutschen: e.target.value ? 2 : preferredMatchRutschen })}
@@ -1807,8 +1777,6 @@ export default function OnlineLobby({ onBack }) {
               onRefresh={refreshPublicRooms}
             />
 
-            <BenchmarkHighscoresPanel highscores={benchmarkHighscores} connected={connected} onStartDeck={startBenchmarkGame} />
-
             <div
               style={{
                 borderTop: "1px solid rgba(255,255,255,0.12)",
@@ -1875,11 +1843,11 @@ export default function OnlineLobby({ onBack }) {
               </div>
               {benchmarkMode && (
                 <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>
-                  Benchmark-Modus nutzt immer 8 feste Spiele.
+                  Benchmark-Modus nutzt immer {FIXED_BENCHMARK_ROUNDS} feste Spiele.
                 </div>
               )}
               <label style={{ display: "grid", gap: 5, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
-                Benchmark-Deck
+                Kartengebung
                 <select
                   value={selectedBenchmarkDeckId}
                   onChange={(e) => updateRoomSettings({ benchmarkDeckId: e.target.value || null, matchRutschen: e.target.value ? 2 : preferredMatchRutschen })}
