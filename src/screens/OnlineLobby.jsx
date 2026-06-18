@@ -229,6 +229,22 @@ const COMPASS_POSITIONS = [
   { area: "west", seat: 3 },
 ];
 
+function normalizeSeat(value) {
+  const seat = Number(value);
+  return Number.isInteger(seat) && seat >= 0 && seat <= 3 ? seat : null;
+}
+
+function compassPositionsForView(viewSeat) {
+  const seat = normalizeSeat(viewSeat);
+  if (seat === null) return COMPASS_POSITIONS;
+  return [
+    { area: "north", seat: (seat + 2) % 4 },
+    { area: "east", seat: (seat + 3) % 4 },
+    { area: "south", seat },
+    { area: "west", seat: (seat + 1) % 4 },
+  ];
+}
+
 function firstTrickSeatFromDealer(dealer) {
   const value = Number(dealer);
   return Number.isInteger(value) ? (value + 1) % 4 : 0;
@@ -254,17 +270,22 @@ function CompassTrickTable({
   trick = [],
   activeSeat = null,
   winnerSeat = null,
+  leadSeat = null,
   cardSize = "md",
   showPoints = false,
+  viewSeat = null,
 }) {
-  const playedBySeat = new Map((Array.isArray(trick) ? trick : []).map((play, order) => [Number(play.player), { ...play, order }]));
+  const trickPlays = Array.isArray(trick) ? trick : [];
+  const effectiveLeadSeat = normalizeSeat(leadSeat ?? trickPlays[0]?.player);
+  const playedBySeat = new Map(trickPlays.map((play, order) => [Number(play.player), { ...play, order }]));
   const cardBox = cardSize === "sm" ? { width: 42, height: 59 } : { width: 58, height: 81 };
-  const slotByArea = Object.fromEntries(COMPASS_POSITIONS.map((position) => [position.area, position]));
+  const slotByArea = Object.fromEntries(compassPositionsForView(viewSeat).map((position) => [position.area, position]));
 
   const renderSlot = ({ area, seat }) => {
     const play = playedBySeat.get(seat);
     const isActive = Number(activeSeat) === seat;
     const isWinner = Number(winnerSeat) === seat;
+    const isLead = effectiveLeadSeat === seat;
     const name = names[seat] || `Platz ${seat + 1}`;
     const pts = play?.card ? cardPts(play.card) : 0;
 
@@ -280,12 +301,21 @@ function CompassTrickTable({
           gap: 5,
           padding: "6px 5px",
           borderRadius: 12,
-          background: play ? "rgba(255,255,255,0.055)" : isActive ? "rgba(244,196,48,0.1)" : "rgba(255,255,255,0.025)",
-          border: isWinner
-            ? "1px solid rgba(244,196,48,0.55)"
-            : isActive
+          background: isActive
+            ? "rgba(244,196,48,0.1)"
+            : isLead
+            ? "rgba(96,165,250,0.08)"
+            : play
+            ? "rgba(255,255,255,0.055)"
+            : "rgba(255,255,255,0.025)",
+          border: isActive
             ? "1px solid rgba(244,196,48,0.32)"
+            : isWinner
+            ? "1px solid rgba(244,196,48,0.55)"
+            : isLead
+            ? "1px solid rgba(147,197,253,0.46)"
             : "1px solid rgba(255,255,255,0.07)",
+          boxShadow: isLead && !isActive ? "0 0 0 1px rgba(147,197,253,0.13), 0 0 12px rgba(147,197,253,0.18)" : undefined,
           boxSizing: "border-box",
         }}
       >
@@ -293,7 +323,7 @@ function CompassTrickTable({
           title={name}
           style={{
             width: "100%",
-            color: isWinner ? "#f4c430" : isActive ? "#f4c430" : "#6dbf8a",
+            color: isWinner ? "#f4c430" : isActive ? "#f4c430" : isLead ? "#bfdbfe" : "#6dbf8a",
             fontSize: 10,
             lineHeight: 1.2,
             whiteSpace: "nowrap",
@@ -622,7 +652,9 @@ function LastTrickBanner({ game }) {
         seatTypes={game.seatTypes}
         trick={lt.trick}
         winnerSeat={lt.winner}
+        leadSeat={lt.leader}
         cardSize="sm"
+        viewSeat={game.yourSeat}
       />
     </div>
   );
@@ -659,8 +691,10 @@ function SpielReviewPanel({ game, summary }) {
                   seatTypes={game.seatTypes}
                   trick={trick}
                   winnerSeat={entry.winner}
+                  leadSeat={entry.leader}
                   cardSize="sm"
                   showPoints
+                  viewSeat={game.yourSeat}
                 />
               </div>
             );
@@ -834,7 +868,9 @@ function RestClaimRevealPanel({ game, onHalt, onWeiter }) {
           seatTypes={game.seatTypes}
           trick={active.trick || []}
           winnerSeat={active.winner}
+          leadSeat={active.leader}
           cardSize="sm"
+          viewSeat={game.yourSeat}
         />
       </div>
     </div>
@@ -1329,8 +1365,10 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
               seatTypes={game.seatTypes}
               trick={game.trick}
               activeSeat={game.phase === "play" ? game.currentPlayer : null}
+              leadSeat={game.trick?.[0]?.player ?? (game.phase === "play" ? game.currentPlayer : null)}
               cardSize="md"
               showPoints
+              viewSeat={game.yourSeat}
             />
           </div>
 
