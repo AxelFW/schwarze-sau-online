@@ -40,10 +40,10 @@ function CardFace({card,highlighted,dimmed,selected,onClick,size='md'}) {
 }
 
 const COMPASS_POSITIONS = [
-  { area: 'north', label: 'Nord', seat: 0 },
-  { area: 'east', label: 'Ost', seat: 1 },
-  { area: 'south', label: 'Süd', seat: 2 },
-  { area: 'west', label: 'West', seat: 3 },
+  { area: 'north', seat: 0 },
+  { area: 'east', seat: 1 },
+  { area: 'south', seat: 2 },
+  { area: 'west', seat: 3 },
 ];
 
 const firstTrickSeatFromDealer = dealer => {
@@ -70,7 +70,7 @@ function CompassTrickTable({names=[],seatTypes=[],trick=[],activeSeat=null,winne
   const cardBox = cardSize === 'sm' ? {width:42,height:59} : {width:58,height:81};
   const slotByArea = Object.fromEntries(COMPASS_POSITIONS.map(position => [position.area, position]));
 
-  const renderSlot = ({area,label,seat}) => {
+  const renderSlot = ({area,seat}) => {
     const play = playedBySeat.get(seat);
     const isActive = Number(activeSeat) === seat;
     const isWinner = Number(winnerSeat) === seat;
@@ -84,8 +84,8 @@ function CompassTrickTable({names=[],seatTypes=[],trick=[],activeSeat=null,winne
         background:play?'rgba(255,255,255,0.055)':isActive?'rgba(244,196,48,0.1)':'rgba(255,255,255,0.025)',
         border:isWinner?'1px solid rgba(244,196,48,0.55)':isActive?'1px solid rgba(244,196,48,0.32)':'1px solid rgba(255,255,255,0.07)',
       }}>
-        <div title={`${label}: ${name}`} style={{width:'100%',color:isWinner||isActive?'#f4c430':'#6dbf8a',fontSize:10,lineHeight:1.2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',textAlign:'center'}}>
-          <span style={{color:'rgba(255,255,255,0.46)'}}>{label}</span> · {playerTypeIcon(seatTypes[seat])} {name}
+        <div title={name} style={{width:'100%',color:isWinner||isActive?'#f4c430':'#6dbf8a',fontSize:10,lineHeight:1.2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',textAlign:'center'}}>
+          {playerTypeIcon(seatTypes[seat])} {name}
         </div>
         {play?.card ? (
           <CardFace card={play.card} size={cardSize}/>
@@ -104,12 +104,13 @@ function CompassTrickTable({names=[],seatTypes=[],trick=[],activeSeat=null,winne
   return (
     <div style={{
       display:'grid',
-      gridTemplateColumns:'minmax(78px,1fr) minmax(84px,1fr) minmax(78px,1fr)',
+      gridTemplateColumns:cardSize==='sm'?'minmax(64px,84px) minmax(74px,112px) minmax(64px,84px)':'minmax(74px,104px) minmax(84px,150px) minmax(74px,104px)',
       gap:8,
       alignItems:'center',
       justifyItems:'center',
+      justifyContent:'center',
       width:'100%',
-      maxWidth:cardSize==='sm'?340:390,
+      maxWidth:cardSize==='sm'?296:374,
       margin:'0 auto',
     }}>
       <div style={{width:'100%',display:'flex',justifyContent:'flex-end'}}>
