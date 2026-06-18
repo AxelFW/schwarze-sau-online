@@ -524,8 +524,9 @@ const strategicVoidDump = (valid, gs, player) => {
   const relation = playerRankRelation(gs, player, recipient);
   if(relation === 'unknown' || relation === 'peer') return null;
 
+  const keepWinnersMode = lateVoidDumpKeepWinnersMode(gs);
   const targetWeight = relation === 'target' ? 2.05 : 0.25;
-  const shapeWeight = relation === 'target' ? 0.20 : 1.65;
+  const shapeWeight = keepWinnersMode ? 0 : (relation === 'target' ? 0.20 : 1.65);
 
   const scored = valid.map(card => {
     const penalty = Math.max(0, -cardPts(card));
@@ -539,6 +540,7 @@ const strategicVoidDump = (valid, gs, player) => {
     score += penalty * 10 * targetWeight;
     score += (voidValue + shortenValue + minorShapeValue) * shapeWeight;
     score -= exposure;
+    score -= futureWinnerKeepPenalty(card, gs, player);
 
     // Against non-targets, keep truly poisonous cards for better targets unless
     // they also solve a major hand-shape problem.
@@ -577,6 +579,16 @@ const voidDump = (valid, gs, player) => {
   // scores: use the previous safety-first dump order.
   const highNegatives = valid.filter(isHighNegativeForDump);
   if(highNegatives.length) return sortByNegativityDesc(highNegatives)[0];
+
+  // 1d. Once the important penalty danger is gone, stop chasing void shape and
+  // keep future winners in hand when a weaker dump is available.
+  if(lateVoidDumpKeepWinnersMode(gs)) {
+    const smallHearts = valid.filter(c => c.s === 'H' && c.v <= 5);
+    if(smallHearts.length) return largestCards(smallHearts)[0];
+
+    const nonPenalty = valid.filter(c => cardPts(c) === 0);
+    if(nonPenalty.length) return leastFutureWinnerValueCards(nonPenalty, gs, player)[0];
+  }
 
   // 2. If ♠Q is still out and we are poorly protected in spades, shed ♠A/♠K.
   if(queenSpadesStillOutNotInHand(gs, player) && spadesLowerThanQueenInHand(gs, player) < 2) {
@@ -919,6 +931,51 @@ const unseenRankCounts = (card, gs, player) => {
     higher: unseen.filter(c => c.v > card.v).length,
     lower: unseen.filter(c => c.v < card.v).length,
   };
+};
+
+const highHeartDangerGone = gs => {
+  const completed = completedCards(gs);
+  return [11, 12, 13, 14].every(v => cardIn(completed, {s: 'H', v}));
+};
+
+const lateVoidDumpKeepWinnersMode = gs =>
+  queenSpadesPlayed(gs) && highHeartDangerGone(gs);
+
+const futureWinnerKeepPenalty = (card, gs, player) => {
+  if(!lateVoidDumpKeepWinnersMode(gs)) return 0;
+  if(cardPts(card) < 0) return 0;
+
+  const {higher, lower} = unseenRankCounts(card, gs, player);
+  const total = higher + lower;
+  if(higher === 0) return 48;
+  if(!total) return 48;
+
+  const lowerShare = lower / total;
+  if(lowerShare < 0.5) return 0;
+
+  return Math.round(
+    8 +
+    lowerShare * 28 +
+    Math.max(0, card.v - 10) * 2 -
+    higher * 4
+  );
+};
+
+const leastFutureWinnerValueCards = (cards, gs, player) => {
+  if(!cards.length) return [];
+  const scored = cards.map(card => ({
+    card,
+    keepPenalty: futureWinnerKeepPenalty(card, gs, player),
+    rank: card.v,
+  }));
+  scored.sort((a,b) =>
+    a.keepPenalty - b.keepPenalty ||
+    a.rank - b.rank
+  );
+  const best = scored[0];
+  return scored
+    .filter(x => x.keepPenalty === best.keepPenalty && x.rank === best.rank)
+    .map(x => x.card);
 };
 
 const quetschReceivedFromRightFor = (gs, player) => gs.quetschReceivedFromRight?.[player] ?? [];
@@ -1478,6 +1535,14 @@ const voidDumpRecommendationCandidates = (valid, gs, player) => {
   const highNegatives = valid.filter(isHighNegativeForDump);
   if(highNegatives.length) return [sortByNegativityDesc(highNegatives)[0]];
 
+  if(lateVoidDumpKeepWinnersMode(gs)) {
+    const smallHearts = valid.filter(c => c.s === 'H' && c.v <= 5);
+    if(smallHearts.length) return largestCards(smallHearts);
+
+    const nonPenalty = valid.filter(c => cardPts(c) === 0);
+    if(nonPenalty.length) return leastFutureWinnerValueCards(nonPenalty, gs, player);
+  }
+
   if(queenSpadesStillOutNotInHand(gs, player) && spadesLowerThanQueenInHand(gs, player) < 2) {
     const highSpades = valid.filter(c => c.s === 'S' && (c.v === 13 || c.v === 14));
     if(highSpades.length) return largestCards(highSpades);
@@ -1781,5 +1846,3 @@ export const chooseHeuristicCard = (gs, player) => {
   const decision = heuristicDecision(gs, player, { stochastic: true });
   return decision.cards[0];
 };
-
-

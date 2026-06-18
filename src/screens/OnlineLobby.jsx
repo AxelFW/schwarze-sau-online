@@ -222,6 +222,144 @@ function cardLabel(card) {
   return VN(card.v) + SYM[card.s];
 }
 
+const COMPASS_POSITIONS = [
+  { area: "north", label: "Nord" },
+  { area: "east", label: "Ost" },
+  { area: "south", label: "Süd" },
+  { area: "west", label: "West" },
+];
+
+function firstTrickSeatFromDealer(dealer) {
+  const value = Number(dealer);
+  return Number.isInteger(value) ? (value + 1) % 4 : 0;
+}
+
+function playerTypeIcon(type) {
+  return type === "human" ? "👤" : "🧠";
+}
+
+function FirstTrickNote({ names = [], seatTypes = [], dealer }) {
+  const firstSeat = firstTrickSeatFromDealer(dealer);
+  const name = names[firstSeat] || `Platz ${firstSeat + 1}`;
+  return (
+    <div style={{ margin: "10px auto 12px", maxWidth: 420, padding: "8px 10px", borderRadius: 10, background: "rgba(244,196,48,0.09)", border: "1px solid rgba(244,196,48,0.24)", color: "rgba(255,255,255,0.78)", fontSize: 13, lineHeight: 1.35, textAlign: "center" }}>
+      Erster Stich: <strong style={{ color: "#f4c430" }}>{playerTypeIcon(seatTypes[firstSeat])} {name}</strong> spielt aus.
+    </div>
+  );
+}
+
+function CompassTrickTable({
+  names = [],
+  seatTypes = [],
+  dealer,
+  trick = [],
+  activeSeat = null,
+  winnerSeat = null,
+  cardSize = "md",
+  showPoints = false,
+  emptyText = "Noch keine Karte gespielt",
+}) {
+  const firstSeat = firstTrickSeatFromDealer(dealer);
+  const playedBySeat = new Map((Array.isArray(trick) ? trick : []).map((play, order) => [Number(play.player), { ...play, order }]));
+  const cardBox = cardSize === "sm" ? { width: 42, height: 59 } : { width: 58, height: 81 };
+  const slots = COMPASS_POSITIONS.map((position, offset) => ({
+    ...position,
+    seat: (firstSeat + offset) % 4,
+  }));
+
+  const renderSlot = ({ area, label, seat }) => {
+    const play = playedBySeat.get(seat);
+    const isActive = Number(activeSeat) === seat;
+    const isWinner = Number(winnerSeat) === seat;
+    const name = names[seat] || `Platz ${seat + 1}`;
+    const pts = play?.card ? cardPts(play.card) : 0;
+    const justifySelf = area === "west" ? "end" : area === "east" ? "start" : "center";
+
+    return (
+      <div
+        key={area}
+        style={{
+          gridArea: area,
+          justifySelf,
+          width: "100%",
+          maxWidth: area === "north" || area === "south" ? 150 : 104,
+          minWidth: 0,
+          display: "grid",
+          justifyItems: "center",
+          gap: 5,
+          padding: "6px 5px",
+          borderRadius: 12,
+          background: play ? "rgba(255,255,255,0.055)" : isActive ? "rgba(244,196,48,0.1)" : "rgba(255,255,255,0.025)",
+          border: isWinner
+            ? "1px solid rgba(244,196,48,0.55)"
+            : isActive
+            ? "1px solid rgba(244,196,48,0.32)"
+            : "1px solid rgba(255,255,255,0.07)",
+          boxSizing: "border-box",
+        }}
+      >
+        <div
+          title={`${label}: ${name}`}
+          style={{
+            width: "100%",
+            color: isWinner ? "#f4c430" : isActive ? "#f4c430" : "#6dbf8a",
+            fontSize: 10,
+            lineHeight: 1.2,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            textAlign: "center",
+          }}
+        >
+          <span style={{ color: "rgba(255,255,255,0.46)" }}>{label}</span> · {playerTypeIcon(seatTypes[seat])} {name}
+        </div>
+        {play?.card ? (
+          <CardFace card={play.card} size={cardSize} />
+        ) : (
+          <div
+            aria-hidden="true"
+            style={{
+              width: cardBox.width,
+              height: cardBox.height,
+              borderRadius: 6,
+              border: "1.5px dashed rgba(255,255,255,0.13)",
+              background: "rgba(0,0,0,0.12)",
+              boxSizing: "border-box",
+            }}
+          />
+        )}
+        {showPoints && (
+          <div style={{ minHeight: 13, fontSize: 10, color: pts < 0 ? "#f87171" : "rgba(255,255,255,0.42)", lineHeight: "13px" }}>
+            {play?.card && pts !== 0 ? pts : ""}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(84px,1fr) minmax(56px,0.7fr) minmax(84px,1fr)",
+        gridTemplateRows: "auto auto auto",
+        gridTemplateAreas: '". north ." "west center east" ". south ."',
+        gap: 8,
+        justifyItems: "center",
+        alignItems: "center",
+        width: "100%",
+        maxWidth: cardSize === "sm" ? 380 : 440,
+        margin: "0 auto",
+      }}
+    >
+      {slots.map(renderSlot)}
+      <div style={{ gridArea: "center", color: "rgba(255,255,255,0.32)", fontSize: 11, lineHeight: 1.25, textAlign: "center", minWidth: 48 }}>
+        {playedBySeat.size ? `${playedBySeat.size}/4` : emptyText}
+      </div>
+    </div>
+  );
+}
+
 const COMMENT_CHOICES = [
   "Klassischer Selbstfopp",
   "Treffer - Versenkt!",
@@ -480,40 +618,14 @@ function LastTrickBanner({ game }) {
       <div style={{ color: lt.pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold", marginBottom: 8 }}>
         Letzter Stich: {game.names[lt.winner]} {lt.pts >= 0 ? "+" : ""}{lt.pts} Punkte
       </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start" }}>
-        {lt.trick.map(({ player, card }, idx) => (
-          <div
-            key={idx}
-            style={{
-              width: 72,
-              flex: "0 0 72px",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                width: "100%",
-                fontSize: 10,
-                color: "#6dbf8a",
-                marginBottom: 5,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                textAlign: "center",
-              }}
-              title={game.names[player]}
-            >
-              {game.names[player]}
-            </div>
-            <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-              <CardFace card={card} size="sm" />
-            </div>
-          </div>
-        ))}
-      </div>
+      <CompassTrickTable
+        names={game.names}
+        seatTypes={game.seatTypes}
+        dealer={game.dealer}
+        trick={lt.trick}
+        winnerSeat={lt.winner}
+        cardSize="sm"
+      />
     </div>
   );
 }
@@ -523,21 +635,6 @@ function SpielReviewPanel({ game, summary }) {
   const [open, setOpen] = useState(false);
   const log = Array.isArray(summary?.spielLog) ? summary.spielLog : [];
   if (!log.length) return null;
-
-  const winnerPlayIndex = (entry) => {
-    const trick = Array.isArray(entry?.trick) ? entry.trick : [];
-    const leadSuit = trick[0]?.card?.s;
-    if (!leadSuit) return -1;
-    let bestIndex = -1;
-    let bestRank = -Infinity;
-    trick.forEach((play, idx) => {
-      if (play?.card?.s === leadSuit && Number(play.card.v) > bestRank) {
-        bestIndex = idx;
-        bestRank = Number(play.card.v);
-      }
-    });
-    return bestIndex;
-  };
 
   return (
     <div style={{ marginTop: 18, textAlign: "center" }}>
@@ -549,7 +646,6 @@ function SpielReviewPanel({ game, summary }) {
           {log.map((entry, idx) => {
             const trick = Array.isArray(entry.trick) ? entry.trick : [];
             const leadSuit = trick[0]?.card?.s;
-            const winIdx = winnerPlayIndex(entry);
             const pts = Number(entry.pts || 0);
             return (
               <div key={(entry.trickNo || idx + 1) + "-" + idx} style={{ padding: "12px 10px", borderRadius: 13, background: idx % 2 ? "rgba(255,255,255,0.035)" : "rgba(255,255,255,0.065)", border: "1px solid rgba(255,255,255,0.06)", marginBottom: 9 }}>
@@ -560,23 +656,15 @@ function SpielReviewPanel({ game, summary }) {
                     Gewinner: {game.names?.[entry.winner] ?? "?"} · <span style={{ color: pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>{pts >= 0 ? "+" : ""}{pts}</span>
                   </span>
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-                  {trick.map(({ player, card }, playIdx) => {
-                    const isWinner = playIdx === winIdx;
-                    const ptsCard = cardPts(card);
-                    return (
-                      <div key={playIdx} style={{ width: 72, flex: "0 0 72px", padding: 6, borderRadius: 10, background: isWinner ? "rgba(244,196,48,0.13)" : "rgba(0,0,0,0.12)", border: isWinner ? "1px solid rgba(244,196,48,0.45)" : "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-                        <div style={{ width: "100%", fontSize: 10, color: isWinner ? "#f4c430" : "#6dbf8a", marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={game.names?.[player]}>
-                          {game.names?.[player] ?? ("P" + (Number(player) + 1))}
-                        </div>
-                        <CardFace card={card} size="sm" />
-                        <div style={{ fontSize: 10, minHeight: 13, color: ptsCard < 0 ? "#f87171" : "rgba(255,255,255,0.42)", marginTop: 3 }}>
-                          {ptsCard !== 0 ? ptsCard : ""}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <CompassTrickTable
+                  names={game.names}
+                  seatTypes={game.seatTypes}
+                  dealer={entry.dealer ?? game.dealer}
+                  trick={trick}
+                  winnerSeat={entry.winner}
+                  cardSize="sm"
+                  showPoints
+                />
               </div>
             );
           })}
@@ -743,17 +831,15 @@ function RestClaimRevealPanel({ game, onHalt, onWeiter }) {
           )}
         </div>
       )}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start", marginTop: 10 }}>
-        {(active.trick || []).map(({ player, card }, idx) => (
-          <div key={idx} style={{ width: 72, flex: "0 0 72px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
-            <div style={{ width: "100%", fontSize: 10, color: player === active.winner ? "#f4c430" : "#6dbf8a", marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "center" }} title={game.names?.[player] || ""}>
-              {game.names?.[player] || ("Platz " + (Number(player) + 1))}
-            </div>
-            <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-              <CardFace card={card} size="sm" />
-            </div>
-          </div>
-        ))}
+      <div style={{ marginTop: 10 }}>
+        <CompassTrickTable
+          names={game.names}
+          seatTypes={game.seatTypes}
+          dealer={game.dealer}
+          trick={active.trick || []}
+          winnerSeat={active.winner}
+          cardSize="sm"
+        />
       </div>
     </div>
   );
@@ -1138,6 +1224,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
           {game.yourSeat === null ? (
             <div style={{ textAlign: "center", padding: "30px 16px", color: "rgba(255,255,255,0.72)" }}>
               <h3 style={{ color: "#f4c430", marginTop: 0 }}>Quetsch läuft</h3>
+              <FirstTrickNote names={game.names} seatTypes={game.seatTypes} dealer={game.dealer} />
               <div style={{ color: "rgba(255,255,255,0.58)", lineHeight: 1.45 }}>
                 Du schaust zu. Die Quetsch-Karten bleiben verdeckt.
               </div>
@@ -1150,6 +1237,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
           ) : game.quetschNeeded ? (
             <>
               <h3 style={{ color: "#f4c430", textAlign: "center" }}>Quetsch: 3 Karten an {game.names[game.quetschTarget]}</h3>
+              <FirstTrickNote names={game.names} seatTypes={game.seatTypes} dealer={game.dealer} />
               {quetschSuggestion?.cards?.length ? (
                 <div style={{ margin: "8px 0 12px", padding: 10, borderRadius: 12, background: "rgba(244,196,48,0.12)", border: "1px solid rgba(244,196,48,0.35)" }}>
                   <div style={{ fontWeight: "bold", marginBottom: 6 }}>Bot-Vorschlag für den Quetsch</div>
@@ -1185,6 +1273,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
           ) : (
             <div style={{ textAlign: "center", padding: "30px 16px", color: "rgba(255,255,255,0.72)" }}>
               <h3 style={{ color: "#f4c430", marginTop: 0 }}>Quetsch abgegeben</h3>
+              <FirstTrickNote names={game.names} seatTypes={game.seatTypes} dealer={game.dealer} />
               <div style={{ color: "rgba(255,255,255,0.58)", lineHeight: 1.45 }}>
                 {(game.quetschReceived || []).length === 3
                   ? <>Diese 3 Karten kommen von {game.names[game.quetschSource]}.<br /></>
@@ -1213,6 +1302,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
       {game.phase === "quetsch_review" && (
         <div style={{ marginTop: 22, textAlign: "center", padding: "28px 16px", color: "rgba(255,255,255,0.75)" }}>
           <h3 style={{ color: "#f4c430", marginTop: 0 }}>Spiel beginnt gleich</h3>
+          <FirstTrickNote names={game.names} seatTypes={game.seatTypes} dealer={game.dealer} />
           <div style={{ color: "rgba(255,255,255,0.6)", lineHeight: 1.45 }}>
             {game.yourSeat === null
               ? "Die Quetschphase ist abgeschlossen. Gleich beginnt die Spielphase."
@@ -1237,46 +1327,16 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
             Stich {displayedTrickNo}/13 {game.leadSuit ? `· Ausgespielt: ${SYM[game.leadSuit]}` : ""}
           </div>
 
-          <div style={{ display: "flex", gap: 16, justifyContent: "center", alignItems: "center", flexWrap: "wrap", minHeight: 105, padding: 14, borderRadius: 14, background: "rgba(0,0,0,0.2)" }}>
-            {game.trick.length === 0 ? (
-              <span style={{ color: "rgba(255,255,255,0.25)" }}>Noch keine Karte gespielt</span>
-            ) : (
-              game.trick.map(({ player, card }, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    width: 92,
-                    flex: "0 0 92px",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    textAlign: "center",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "100%",
-                      fontSize: 11,
-                      color: "#6dbf8a",
-                      marginBottom: 4,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      textAlign: "center",
-                    }}
-                    title={game.names[player]}
-                  >
-                    {game.names[player]}
-                  </div>
-                  <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                    <CardFace card={card} />
-                  </div>
-                  <div style={{ width: "100%", fontSize: 10, color: cardPts(card) < 0 ? "#f87171" : "rgba(255,255,255,0.4)", marginTop: 3, textAlign: "center" }}>
-                    {cardPts(card) !== 0 ? cardPts(card) : ""}
-                  </div>
-                </div>
-              ))
-            )}
+          <div style={{ minHeight: 255, padding: 14, borderRadius: 14, background: "rgba(0,0,0,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <CompassTrickTable
+              names={game.names}
+              seatTypes={game.seatTypes}
+              dealer={game.dealer}
+              trick={game.trick}
+              activeSeat={game.phase === "play" ? game.currentPlayer : null}
+              cardSize="md"
+              showPoints
+            />
           </div>
 
           {!isTrickPause && (

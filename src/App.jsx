@@ -39,6 +39,89 @@ function CardFace({card,highlighted,dimmed,selected,onClick,size='md'}) {
   );
 }
 
+const COMPASS_POSITIONS = [
+  { area: 'north', label: 'Nord' },
+  { area: 'east', label: 'Ost' },
+  { area: 'south', label: 'Süd' },
+  { area: 'west', label: 'West' },
+];
+
+const firstTrickSeatFromDealer = dealer => {
+  const value = Number(dealer);
+  return Number.isInteger(value) ? (value + 1) % 4 : 0;
+};
+
+const playerTypeIcon = type => (
+  type === 'human' ? '👤' : type === 'heuristic' ? '🧠' : '🤖'
+);
+
+function FirstTrickNote({names=[],seatTypes=[],dealer}) {
+  const firstSeat = firstTrickSeatFromDealer(dealer);
+  const name = names[firstSeat] || `Platz ${firstSeat + 1}`;
+  return (
+    <div style={{margin:'10px auto 12px',maxWidth:420,padding:'8px 10px',borderRadius:10,background:'rgba(244,196,48,0.09)',border:'1px solid rgba(244,196,48,0.24)',color:'rgba(255,255,255,0.78)',fontSize:13,lineHeight:1.35,textAlign:'center'}}>
+      Erster Stich: <strong style={{color:'#f4c430'}}>{playerTypeIcon(seatTypes[firstSeat])} {name}</strong> spielt aus.
+    </div>
+  );
+}
+
+function CompassTrickTable({names=[],seatTypes=[],dealer,trick=[],activeSeat=null,winnerSeat=null,cardSize='md',showPoints=false,emptyText='Noch keine Karte gespielt'}) {
+  const firstSeat = firstTrickSeatFromDealer(dealer);
+  const playedBySeat = new Map((Array.isArray(trick) ? trick : []).map((play, order) => [Number(play.player), {...play, order}]));
+  const cardBox = cardSize === 'sm' ? {width:42,height:59} : {width:58,height:81};
+  const slots = COMPASS_POSITIONS.map((position, offset) => ({
+    ...position,
+    seat: (firstSeat + offset) % 4,
+  }));
+
+  const renderSlot = ({area,label,seat}) => {
+    const play = playedBySeat.get(seat);
+    const isActive = Number(activeSeat) === seat;
+    const isWinner = Number(winnerSeat) === seat;
+    const name = names[seat] || `Platz ${seat + 1}`;
+    const pts = play?.card ? cardPts(play.card) : 0;
+    const justifySelf = area === 'west' ? 'end' : area === 'east' ? 'start' : 'center';
+
+    return (
+      <div key={area} style={{
+        gridArea:area,justifySelf,width:'100%',maxWidth:area==='north'||area==='south'?150:104,minWidth:0,
+        display:'grid',justifyItems:'center',gap:5,padding:'6px 5px',borderRadius:12,boxSizing:'border-box',
+        background:play?'rgba(255,255,255,0.055)':isActive?'rgba(244,196,48,0.1)':'rgba(255,255,255,0.025)',
+        border:isWinner?'1px solid rgba(244,196,48,0.55)':isActive?'1px solid rgba(244,196,48,0.32)':'1px solid rgba(255,255,255,0.07)',
+      }}>
+        <div title={`${label}: ${name}`} style={{width:'100%',color:isWinner||isActive?'#f4c430':'#6dbf8a',fontSize:10,lineHeight:1.2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',textAlign:'center'}}>
+          <span style={{color:'rgba(255,255,255,0.46)'}}>{label}</span> · {playerTypeIcon(seatTypes[seat])} {name}
+        </div>
+        {play?.card ? (
+          <CardFace card={play.card} size={cardSize}/>
+        ) : (
+          <div aria-hidden="true" style={{width:cardBox.width,height:cardBox.height,borderRadius:6,border:'1.5px dashed rgba(255,255,255,0.13)',background:'rgba(0,0,0,0.12)',boxSizing:'border-box'}}/>
+        )}
+        {showPoints&&(
+          <div style={{minHeight:13,fontSize:10,color:pts<0?'#f87171':'rgba(255,255,255,0.42)',lineHeight:'13px'}}>
+            {play?.card&&pts!==0?pts:''}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{
+      display:'grid',
+      gridTemplateColumns:'minmax(84px,1fr) minmax(56px,0.7fr) minmax(84px,1fr)',
+      gridTemplateRows:'auto auto auto',
+      gridTemplateAreas:'". north ." "west center east" ". south ."',
+      gap:8,justifyItems:'center',alignItems:'center',width:'100%',maxWidth:cardSize==='sm'?380:440,margin:'0 auto',
+    }}>
+      {slots.map(renderSlot)}
+      <div style={{gridArea:'center',color:'rgba(255,255,255,0.32)',fontSize:11,lineHeight:1.25,textAlign:'center',minWidth:48}}>
+        {playedBySeat.size?`${playedBySeat.size}/4`:emptyText}
+      </div>
+    </div>
+  );
+}
+
 const Btn = ({children,onClick,full,disabled,style={}}) => (
   <button onClick={disabled?undefined:onClick} style={{
     background:disabled?'rgba(255,255,255,0.1)':'linear-gradient(135deg,#f4c430,#d4a017)',
@@ -150,7 +233,7 @@ function ScoreBar({names,seatTypes,gs,runScores,highlight}) {
   );
 }
 
-function QuetschSelect({names,quetschStep,hand,onConfirm}) {
+function QuetschSelect({names,seatTypes,dealer,quetschStep,hand,onConfirm}) {
   const [sel,setSel]=useState([]);
   const toggle=(card)=>setSel(prev=>{
     const already=prev.find(c=>c.s===card.s&&c.v===card.v);
@@ -171,6 +254,7 @@ function QuetschSelect({names,quetschStep,hand,onConfirm}) {
           <span style={{color:'#f4c430',fontWeight:'bold',fontSize:15}}>👤 {names[quetschStep]}</span>
           <span style={{color:'#9dcfb0',fontSize:13,marginLeft:10}}>→ 3 Karten an <strong style={{color:'white'}}>{target}</strong></span>
         </div>
+        <FirstTrickNote names={names} seatTypes={seatTypes} dealer={dealer}/>
         <div style={{display:'flex',justifyContent:'center',gap:8,alignItems:'center',flexWrap:'wrap'}}>
           {[0,1,2].map(i=>(
             <div key={i} style={{width:46,height:64,borderRadius:6,border:`2px solid ${sel[i]?'#f4c430':'rgba(255,255,255,0.12)'}`,background:sel[i]?'rgba(244,196,48,0.08)':'rgba(255,255,255,0.03)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:sel[i]?'#f4c430':'rgba(255,255,255,0.18)'}}>
@@ -486,6 +570,7 @@ export default function App() {
               QUETSCH — Schritt {quetschStep+1} von 4
             </div>
             <h2 style={{fontSize:30,color:'#f4c430',margin:'0 0 10px'}}>👤 {names[quetschStep]}</h2>
+            <FirstTrickNote names={names} seatTypes={seatTypes} dealer={gs.dealer}/>
             <p style={{color:'#9dcfb0',marginBottom:36,fontSize:15,lineHeight:1.7}}>
               Gerät bitte an <strong style={{color:'white'}}>{names[quetschStep]}</strong> weitergeben.<br/>
               <span style={{fontSize:13,opacity:0.6}}>Wähle 3 Karten für <strong style={{color:'rgba(255,255,255,0.8)'}}>{names[(quetschStep+1)%4]}</strong>.</span>
@@ -499,6 +584,7 @@ export default function App() {
 
   if(phase==='quetsch_select') return (
     <QuetschSelect names={names} quetschStep={quetschStep}
+      seatTypes={seatTypes} dealer={gs.dealer}
       hand={gs.hands[quetschStep]} onConfirm={confirmQuetschSelection}/>
   );
 
@@ -512,6 +598,7 @@ export default function App() {
           <div style={{textAlign:'center',maxWidth:380}}>
             <div style={{width:72,height:72,borderRadius:'50%',background:'rgba(244,196,48,0.15)',border:'2px solid rgba(244,196,48,0.4)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',fontSize:32}}>🎁</div>
             <h2 style={{fontSize:30,color:'#f4c430',margin:'0 0 10px'}}>{names[reviewPlayer]}</h2>
+            <FirstTrickNote names={names} seatTypes={seatTypes} dealer={gs.dealer}/>
             <p style={{color:'#9dcfb0',marginBottom:36,fontSize:15,lineHeight:1.7}}>
               Gerät bitte an <strong style={{color:'white'}}>{names[reviewPlayer]}</strong> weitergeben.<br/>
               <span style={{fontSize:13,opacity:0.6}}>Neue Quetsch-Karten ansehen — andere Spieler bitte nicht hinschauen.</span>
@@ -538,6 +625,7 @@ export default function App() {
           <div style={{textAlign:'center',maxWidth:560,width:'100%'}}>
             <div style={{fontSize:36,marginBottom:10}}>🎁</div>
             <h2 style={{fontSize:28,color:'#f4c430',margin:'0 0 8px'}}>Neue Karten aus dem Quetsch</h2>
+            <FirstTrickNote names={names} seatTypes={seatTypes} dealer={gs.dealer}/>
             <p style={{color:'#9dcfb0',fontSize:14,lineHeight:1.6,margin:'0 0 18px'}}>
               {names[reviewPlayer]} hat diese Karten von <strong style={{color:'white'}}>{names[fromPlayer]}</strong> erhalten.
             </p>
@@ -623,6 +711,7 @@ export default function App() {
     const hand  = isTrickPause ? [] : (gs.hands[activePlayer] ?? []);
     const valid = isTrickPause ? new Set() : new Set(getValidIdxs(hand, gs.leadSuit));
     const trickNo = isTrickPause ? gs.tricksPlayed : gs.tricksPlayed + 1;
+    const tableTrick = isTrickPause ? (lastTrick?.trick ?? gs.trick) : gs.trick;
     return (
       <div style={{...bg,display:'flex',flexDirection:'column'}}>
         <Header/>
@@ -634,18 +723,17 @@ export default function App() {
               Stich {trickNo} von 13
               {gs.leadSuit&&<span style={{marginLeft:8,color:'rgba(255,255,255,0.7)'}}>· Angespielt: {SYM[gs.leadSuit]}</span>}
             </div>
-            <div style={{display:'flex',gap:16,justifyContent:'center',minHeight:92,alignItems:'flex-start',flexWrap:'wrap'}}>
-              {gs.trick.length===0
-                ?<span style={{color:'rgba(255,255,255,0.2)',fontSize:14}}>Noch keine Karte gespielt</span>
-                :gs.trick.map(({player:p,card},i)=>(
-                  <div key={i} style={{width:86,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
-                    <div title={names[p]} style={{width:'100%',fontSize:10,color:'#6dbf8a',marginBottom:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                      {seatTypes[p]==='human'?'👤':seatTypes[p]==='heuristic'?'🧠':'🤖'} {names[p]}
-                    </div>
-                    <CardFace card={card}/>
-                  </div>
-                ))
-              }
+            <div style={{minHeight:235,display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <CompassTrickTable
+                names={names}
+                seatTypes={seatTypes}
+                dealer={gs.dealer}
+                trick={tableTrick}
+                activeSeat={!isTrickPause?activePlayer:null}
+                winnerSeat={isTrickPause?lastTrick?.winner:null}
+                cardSize='md'
+                showPoints={Boolean(isTrickPause)}
+              />
             </div>
           </div>
         </div>
@@ -688,16 +776,16 @@ export default function App() {
           <p style={{fontSize:26,fontWeight:'bold',color:lastTrick.pts>=0?'#4ade80':'#f87171',margin:'0 0 20px'}}>
             {lastTrick.pts>=0?'+':''}{lastTrick.pts} Punkte
           </p>
-          <div style={{display:'flex',gap:14,justifyContent:'center',flexWrap:'wrap',marginBottom:24,background:'rgba(0,0,0,0.2)',borderRadius:12,padding:'12px'}}>
-            {lastTrick.trick.map(({player:p,card},i)=>(
-              <div key={i} style={{width:72,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
-                <div title={names[p]} style={{width:'100%',fontSize:10,color:'#6dbf8a',marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{names[p]}</div>
-                <CardFace card={card} size='sm'/>
-                <div style={{fontSize:10,color:cardPts(card)<0?'#f87171':'rgba(255,255,255,0.4)',marginTop:3}}>
-                  {cardPts(card)!==0?(cardPts(card)>0?'+':'')+cardPts(card):''}
-                </div>
-              </div>
-            ))}
+          <div style={{marginBottom:24,background:'rgba(0,0,0,0.2)',borderRadius:12,padding:'12px'}}>
+            <CompassTrickTable
+              names={names}
+              seatTypes={seatTypes}
+              dealer={gs.dealer}
+              trick={lastTrick.trick}
+              winnerSeat={lastTrick.winner}
+              cardSize='sm'
+              showPoints
+            />
           </div>
           <Btn onClick={afterTrick}>{lastTrick.isFinal?'Zur Auswertung →':'Nächster Stich →'}</Btn>
         </div>
