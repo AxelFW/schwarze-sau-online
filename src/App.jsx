@@ -40,10 +40,10 @@ function CardFace({card,highlighted,dimmed,selected,onClick,size='md'}) {
 }
 
 const COMPASS_POSITIONS = [
-  { area: 'north', label: 'Nord' },
-  { area: 'east', label: 'Ost' },
-  { area: 'south', label: 'Süd' },
-  { area: 'west', label: 'West' },
+  { area: 'north', label: 'Nord', seat: 0 },
+  { area: 'east', label: 'Ost', seat: 1 },
+  { area: 'south', label: 'Süd', seat: 2 },
+  { area: 'west', label: 'West', seat: 3 },
 ];
 
 const firstTrickSeatFromDealer = dealer => {
@@ -65,14 +65,10 @@ function FirstTrickNote({names=[],seatTypes=[],dealer}) {
   );
 }
 
-function CompassTrickTable({names=[],seatTypes=[],dealer,trick=[],activeSeat=null,winnerSeat=null,cardSize='md',showPoints=false,emptyText='Noch keine Karte gespielt'}) {
-  const firstSeat = firstTrickSeatFromDealer(dealer);
+function CompassTrickTable({names=[],seatTypes=[],trick=[],activeSeat=null,winnerSeat=null,cardSize='md',showPoints=false}) {
   const playedBySeat = new Map((Array.isArray(trick) ? trick : []).map((play, order) => [Number(play.player), {...play, order}]));
   const cardBox = cardSize === 'sm' ? {width:42,height:59} : {width:58,height:81};
-  const slots = COMPASS_POSITIONS.map((position, offset) => ({
-    ...position,
-    seat: (firstSeat + offset) % 4,
-  }));
+  const slotByArea = Object.fromEntries(COMPASS_POSITIONS.map(position => [position.area, position]));
 
   const renderSlot = ({area,label,seat}) => {
     const play = playedBySeat.get(seat);
@@ -80,11 +76,10 @@ function CompassTrickTable({names=[],seatTypes=[],dealer,trick=[],activeSeat=nul
     const isWinner = Number(winnerSeat) === seat;
     const name = names[seat] || `Platz ${seat + 1}`;
     const pts = play?.card ? cardPts(play.card) : 0;
-    const justifySelf = area === 'west' ? 'end' : area === 'east' ? 'start' : 'center';
 
     return (
       <div key={area} style={{
-        gridArea:area,justifySelf,width:'100%',maxWidth:area==='north'||area==='south'?150:104,minWidth:0,
+        width:'100%',maxWidth:area==='north'||area==='south'?150:104,minWidth:0,
         display:'grid',justifyItems:'center',gap:5,padding:'6px 5px',borderRadius:12,boxSizing:'border-box',
         background:play?'rgba(255,255,255,0.055)':isActive?'rgba(244,196,48,0.1)':'rgba(255,255,255,0.025)',
         border:isWinner?'1px solid rgba(244,196,48,0.55)':isActive?'1px solid rgba(244,196,48,0.32)':'1px solid rgba(255,255,255,0.07)',
@@ -109,14 +104,23 @@ function CompassTrickTable({names=[],seatTypes=[],dealer,trick=[],activeSeat=nul
   return (
     <div style={{
       display:'grid',
-      gridTemplateColumns:'minmax(84px,1fr) minmax(56px,0.7fr) minmax(84px,1fr)',
-      gridTemplateRows:'auto auto auto',
-      gridTemplateAreas:'". north ." "west center east" ". south ."',
-      gap:8,justifyItems:'center',alignItems:'center',width:'100%',maxWidth:cardSize==='sm'?380:440,margin:'0 auto',
+      gridTemplateColumns:'minmax(78px,1fr) minmax(84px,1fr) minmax(78px,1fr)',
+      gap:8,
+      alignItems:'center',
+      justifyItems:'center',
+      width:'100%',
+      maxWidth:cardSize==='sm'?340:390,
+      margin:'0 auto',
     }}>
-      {slots.map(renderSlot)}
-      <div style={{gridArea:'center',color:'rgba(255,255,255,0.32)',fontSize:11,lineHeight:1.25,textAlign:'center',minWidth:48}}>
-        {playedBySeat.size?`${playedBySeat.size}/4`:emptyText}
+      <div style={{width:'100%',display:'flex',justifyContent:'flex-end'}}>
+        {renderSlot(slotByArea.west)}
+      </div>
+      <div style={{width:'100%',display:'grid',gap:8,justifyItems:'center'}}>
+        {renderSlot(slotByArea.north)}
+        {renderSlot(slotByArea.south)}
+      </div>
+      <div style={{width:'100%',display:'flex',justifyContent:'flex-start'}}>
+        {renderSlot(slotByArea.east)}
       </div>
     </div>
   );
@@ -723,11 +727,10 @@ export default function App() {
               Stich {trickNo} von 13
               {gs.leadSuit&&<span style={{marginLeft:8,color:'rgba(255,255,255,0.7)'}}>· Angespielt: {SYM[gs.leadSuit]}</span>}
             </div>
-            <div style={{minHeight:235,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{minHeight:170,display:'flex',alignItems:'center',justifyContent:'center'}}>
               <CompassTrickTable
                 names={names}
                 seatTypes={seatTypes}
-                dealer={gs.dealer}
                 trick={tableTrick}
                 activeSeat={!isTrickPause?activePlayer:null}
                 winnerSeat={isTrickPause?lastTrick?.winner:null}
@@ -780,7 +783,6 @@ export default function App() {
             <CompassTrickTable
               names={names}
               seatTypes={seatTypes}
-              dealer={gs.dealer}
               trick={lastTrick.trick}
               winnerSeat={lastTrick.winner}
               cardSize='sm'
