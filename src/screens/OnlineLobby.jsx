@@ -511,7 +511,7 @@ function ScoreStrip({ game }) {
               padding: "7px 5px",
               borderRadius: 10,
               background: i === game.currentPlayer ? "rgba(244,196,48,0.12)" : "rgba(255,255,255,0.06)",
-              border: i === game.yourSeat ? "1px solid rgba(244,196,48,0.45)" : "1px solid rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.08)",
               textAlign: "center",
             }}
           >
