@@ -733,6 +733,9 @@ function CommentBubbles({ game }) {
   const createdAt = Number(latest.at || 0);
   const expiresAt = Number(latest.expiresAt || createdAt + 5000);
   if (now >= expiresAt) return null;
+  const commentSeat = Number(latest.seat);
+  const hasSeat = latest.seat !== null && latest.seat !== undefined && Number.isInteger(commentSeat);
+  const authorName = latest.name || (hasSeat ? (game.names?.[commentSeat] || ("Platz " + (commentSeat + 1))) : "Zuschauer");
 
   return (
     <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
@@ -748,10 +751,10 @@ function CommentBubbles({ game }) {
           lineHeight: 1.25,
           textAlign: "left",
         }}
-        title={game.names?.[latest.seat] || ""}
+        title={authorName}
       >
         <span style={{ color: "#6dbf8a", fontSize: 10, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {game.names?.[latest.seat] || ("Platz " + (Number(latest.seat) + 1))}
+          {authorName}
         </span>
         <span>{latest.text}</span>
       </div>
@@ -761,7 +764,7 @@ function CommentBubbles({ game }) {
 
 function CommentControls({ room, game, setError }) {
   const [customComment, setCustomComment] = useState("");
-  if (!room || !game || game.yourSeat === null || game.phase === "gameover") return null;
+  if (!room || !game || game.phase === "gameover") return null;
   const choices = Array.isArray(game.commentChoices) && game.commentChoices.length ? game.commentChoices : COMMENT_CHOICES;
 
   async function sendComment(text) {
@@ -1149,8 +1152,15 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
     : Math.min((game.tricksPlayed || 0) + 1, 13);
 
   if (game.phase === "gameover") {
+    const summary = game.lastRound;
     const ranked = game.names
-      .map((name, seat) => ({ name, seat, score: game.scores[seat], type: game.seatTypes[seat] }))
+      .map((name, seat) => ({
+        name,
+        seat,
+        roundPts: summary?.roundPts?.[seat] ?? game.roundPts?.[seat] ?? 0,
+        score: summary?.totalScores?.[seat] ?? game.scores[seat],
+        type: game.seatTypes[seat],
+      }))
       .sort((a, b) => b.score - a.score || a.seat - b.seat);
     const medals = ["🥇", "🥈", "🥉", "4."];
 
@@ -1158,12 +1168,21 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
       <div style={{ marginTop: 22 }}>
         <h2 style={{ color: "#f4c430", textAlign: "center" }}>Rutschenende</h2>
         <BenchmarkGameLine game={game} />
-        {ranked.map((p, i) => (
-          <div key={p.seat} style={{ display: "flex", justifyContent: "space-between", padding: 13, marginTop: 8, borderRadius: 12, background: i === 0 ? "rgba(244,196,48,0.12)" : "rgba(255,255,255,0.06)" }}>
-            <span>{medals[i]} {p.type === "human" ? "👤" : "🧠"} {p.name}{p.score < -100 ? " 🥳" : ""}</span>
-            <strong style={{ color: "#f4c430" }}>{p.score}</strong>
+        <div style={{ color: "#6dbf8a", textAlign: "center", marginBottom: 16 }}>
+          Letztes Spiel und Gesamtstand
+        </div>
+        <div style={{ background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 68px 68px", gap: 6, padding: "8px 9px", color: "#6dbf8a", fontSize: 11, letterSpacing: 0.5, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+            <span>SPIELER</span><span style={{ textAlign: "right" }}>SPIEL</span><span style={{ textAlign: "right" }}>GESAMT</span>
           </div>
-        ))}
+          {ranked.map((p, i) => (
+            <div key={p.seat} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 68px 68px", gap: 6, alignItems: "center", padding: "10px 9px", background: i === 0 ? "rgba(244,196,48,0.12)" : (i % 2 ? "rgba(255,255,255,0.025)" : "transparent") }}>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{medals[i]} {p.type === "human" ? "👤" : "🧠"} {p.name}{p.score < -100 ? " 🥳" : ""}</span>
+              <strong style={{ textAlign: "right", color: p.roundPts >= 0 ? "#4ade80" : "#f87171" }}>{p.roundPts >= 0 ? "+" : ""}{p.roundPts}</strong>
+              <strong style={{ textAlign: "right", color: "#f4c430", fontSize: 18 }}>{p.score}</strong>
+            </div>
+          ))}
+        </div>
         <SpielReviewPanel game={game} summary={game.lastRound} />
         <PointsDevelopmentGraph game={game} />
         <div style={{ marginTop: 20, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
@@ -1249,7 +1268,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
       <ScoreStrip game={game} />
       {game.showPenaltyTracker && <NegativeCardsBar game={game} />}
       {game.phase !== "rest_claim_reveal" && <LastTrickBanner game={game} />}
-      <CommentBubbles game={game} />
       <SuggestionPanel game={game} />
 
       {game.lastRound && (
@@ -1257,6 +1275,9 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
           Letztes Spiel: {game.lastRound.roundPts.map((pts, i) => `${game.names[i]} ${pts >= 0 ? "+" : ""}${pts}`).join(" · ")}
         </div>
       )}
+
+      <CommentBubbles game={game} />
+      <CommentControls room={room} game={game} setError={setError} />
 
       {game.phase === "rest_claim_reveal" && <RestClaimRevealPanel game={game} onHalt={haltRestClaimReveal} onWeiter={continueRestClaimReveal} />}
       {game.phase === "rest_claim_pending" && <RestClaimPendingPanel game={game} onRespond={respondRestClaim} />}
@@ -1307,7 +1328,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   />
                 ))}
               </div>
-              <CommentControls room={room} game={game} setError={setError} />
               <div style={{ textAlign: "center", marginTop: 18 }}>
                 <Button onClick={submitQuetsch} disabled={selected.length !== 3}>Karten weitergeben</Button>
               </div>
@@ -1424,7 +1444,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   );
                 })}
               </div>
-              <CommentControls room={room} game={game} setError={setError} />
             </>
           )}
         </div>

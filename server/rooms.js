@@ -1562,19 +1562,22 @@ export function sendOnlineComment({ roomCode, socketId, text }) {
   const room = requireRoom(roomCode);
   if (room.status !== "playing" || !room.game) throw new Error("Es läuft kein Spiel.");
   const seat = findSeatForSocket(room, socketId);
-  if (!seat) throw new Error("Du sitzt nicht an diesem Tisch.");
+  const isSpectator = !seat && room.spectators?.has(socketId);
+  if (!seat && !isSpectator) throw new Error("Du bist nicht an diesem Tisch.");
   const clean = cleanCommentText(text);
   if (!clean) throw new Error("Der Spruch ist leer.");
   const now = Date.now();
+  const authorSeat = seat?.seat ?? null;
   const comment = {
-    id: String(now) + "-" + String(seat.seat) + "-" + Math.random().toString(36).slice(2, 8),
-    seat: seat.seat,
+    id: String(now) + "-" + String(authorSeat ?? "spectator") + "-" + Math.random().toString(36).slice(2, 8),
+    seat: authorSeat,
+    name: seat ? seatDisplayName(room, seat.seat) : "Zuschauer",
     text: clean,
     at: now,
   };
   room.game.comments = [comment];
   touch(room);
-  log("Spruch gesendet", { roomCode: room.roomCode, seat: seat.seat, text: clean });
+  log("Spruch gesendet", { roomCode: room.roomCode, seat: authorSeat, spectator: isSpectator, text: clean });
   return room;
 }
 
