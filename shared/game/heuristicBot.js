@@ -327,6 +327,29 @@ const unseenCardsOfSuit = (gs, player, suit) => {
   return cardsOfSuit(suit).filter(c => !seen.has(cardKey(c)));
 };
 
+const withInferredExhaustedSuitVoids = (gs, player) => {
+  if(!gs?.hands?.[player]) return gs;
+
+  const inferredVoids = Array.from({length: 4}, (_, i) => [
+    ...(gs.knownVoids?.[i] ?? [false, false, false, false]),
+  ]);
+  let changed = false;
+
+  for(const suit of ['C', 'D', 'H', 'S']) {
+    if(unseenCardsOfSuit(gs, player, suit).length !== 0) continue;
+
+    const si = suitIdx(suit);
+    for(let off = 1; off <= 3; off++) {
+      const p = (player + off) % 4;
+      if(inferredVoids[p][si]) continue;
+      inferredVoids[p][si] = true;
+      changed = true;
+    }
+  }
+
+  return changed ? {...gs, knownVoids: inferredVoids} : gs;
+};
+
 const currentWinningRank = gs => {
   if(!gs.leadSuit || !gs.trick.length) return null;
   const ranks = gs.trick.filter(x => x.card.s === gs.leadSuit).map(x => x.card.v);
@@ -1570,6 +1593,7 @@ const heartFollowControlCandidates = (cards, gs) => {
 };
 
 const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
+  gs = withInferredExhaustedSuitVoids(gs, player);
   const hand = gs.hands[player];
   const valid = getValidIdxs(hand, gs.leadSuit).map(i => hand[i]);
   const isLeading = !gs.leadSuit || gs.trick.length === 0;
