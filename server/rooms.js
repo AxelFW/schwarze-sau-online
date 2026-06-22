@@ -166,8 +166,8 @@ function defaultRoomSettings(settings = {}) {
     matchRutschen: benchmarkDeckId ? 2 : normalizeMatchRutschen(settings.matchRutschen ?? DEFAULT_MATCH_RUNDEN),
     showPenaltyTracker: settings.showPenaltyTracker !== false,
     easyMode: settings.easyMode === true,
-    quickGame: settings.quickGame === true,
-    publicTable: benchmarkDeckId ? false : settings.publicTable === true,
+    quickGame: settings.quickGame !== false,
+    publicTable: benchmarkDeckId ? false : settings.publicTable !== false,
     benchmarkDeckId,
   };
 }

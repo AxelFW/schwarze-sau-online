@@ -96,6 +96,22 @@ const panel = {
   padding: 20,
 };
 
+const gameTypeSelectStyle = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.2)",
+  background: "#173c2b",
+  color: "white",
+  fontFamily: "Georgia,serif",
+  fontSize: 14,
+};
+
+const gameTypeOptionStyle = {
+  background: "white",
+  color: "#1a1a1a",
+};
+
 function Button({ children, onClick, disabled, style = {} }) {
   return (
     <button
@@ -1465,8 +1481,8 @@ export default function OnlineLobby({ onBack }) {
   const [preferredMatchRutschen, setPreferredMatchRutschen] = useState(1);
   const [preferredShowPenaltyTracker, setPreferredShowPenaltyTracker] = useState(true);
   const [preferredEasyMode, setPreferredEasyMode] = useState(INITIAL_EASY_MODE_FROM_URL === true);
-  const [preferredQuickGame, setPreferredQuickGame] = useState(false);
-  const [preferredPublicTable, setPreferredPublicTable] = useState(false);
+  const [preferredQuickGame, setPreferredQuickGame] = useState(true);
+  const [preferredPublicTable, setPreferredPublicTable] = useState(true);
   const [preferredBenchmarkDeckId, setPreferredBenchmarkDeckId] = useState("");
   const [easyModeOptionVisible, setEasyModeOptionVisible] = useState(EASY_MODE_OPTION_VISIBLE);
   const [joinCode, setJoinCode] = useState("");
@@ -1832,20 +1848,11 @@ export default function OnlineLobby({ onBack }) {
                 <select
                   value={selectedBenchmarkDeckId}
                   onChange={(e) => updateRoomSettings({ benchmarkDeckId: e.target.value || null, matchRutschen: e.target.value ? 2 : preferredMatchRutschen })}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(255,255,255,0.08)",
-                    color: "white",
-                    fontFamily: "Georgia,serif",
-                    fontSize: 14,
-                  }}
+                  style={gameTypeSelectStyle}
                 >
-                  <option value="">Zufällige Karten</option>
+                  <option value="" style={gameTypeOptionStyle}>Zufällige Karten</option>
                   {BENCHMARK_DECKS.map((deck) => (
-                    <option key={deck.id} value={deck.id}>{deck.name} · {FIXED_BENCHMARK_ROUNDS} Spiele</option>
+                    <option key={deck.id} value={deck.id} style={gameTypeOptionStyle}>{deck.name} · {FIXED_BENCHMARK_ROUNDS} Spiele</option>
                   ))}
                 </select>
                 {selectedBenchmarkDeck && (
@@ -1979,20 +1986,11 @@ export default function OnlineLobby({ onBack }) {
                 <select
                   value={selectedBenchmarkDeckId}
                   onChange={(e) => updateRoomSettings({ benchmarkDeckId: e.target.value || null, matchRutschen: e.target.value ? 2 : preferredMatchRutschen })}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(255,255,255,0.08)",
-                    color: "white",
-                    fontFamily: "Georgia,serif",
-                    fontSize: 14,
-                  }}
+                  style={gameTypeSelectStyle}
                 >
-                  <option value="">Zufällige Karten</option>
+                  <option value="" style={gameTypeOptionStyle}>Zufällige Karten</option>
                   {BENCHMARK_DECKS.map((deck) => (
-                    <option key={deck.id} value={deck.id}>{deck.name} · {FIXED_BENCHMARK_ROUNDS} Spiele</option>
+                    <option key={deck.id} value={deck.id} style={gameTypeOptionStyle}>{deck.name} · {FIXED_BENCHMARK_ROUNDS} Spiele</option>
                   ))}
                 </select>
                 {selectedBenchmarkDeck && (
