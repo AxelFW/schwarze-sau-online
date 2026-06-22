@@ -586,24 +586,35 @@ const strategicVoidDump = (valid, gs, player) => {
   return scored[0]?.card ?? null;
 };
 
+const unshieldedHighSpadeDumpCandidates = (valid, gs, player) => {
+  if(!queenSpadesStillOutNotInHand(gs, player)) return [];
+  if(spadesLowerThanQueenInHand(gs, player) !== 0) return [];
+  return largestCards(valid.filter(c => c.s === 'S' && (c.v === 13 || c.v === 14)));
+};
+
 const voidDump = (valid, gs, player) => {
-  // 1a. True emergency dumps.  These override politics: escape ♠Q when it has
+  // 1a. If ♠Q is live outside and ♠K/♠A have no low spade shield, those high
+  // spades are immediate trap cards.  Dump them before ordinary heart poison.
+  const unshieldedHighSpades = unshieldedHighSpadeDumpCandidates(valid, gs, player);
+  if(unshieldedHighSpades.length) return unshieldedHighSpades[0];
+
+  // 1b. True emergency dumps.  These override politics: escape ♠Q when it has
   // fewer than two spade guards, and escape ♥J–♥A when there are fewer than two
   // ♥2–♥9 protectors.
   const emergencyDumps = criticalVoidDumpCandidates(valid, gs, player);
   if(emergencyDumps.length) return emergencyDumps[0];
 
-  // 1b. Strategic recipient-aware dumping.  Only active when the current trick
+  // 1c. Strategic recipient-aware dumping.  Only active when the current trick
   // recipient is certain and public scores are available in gs.
   const strategicDump = strategicVoidDump(valid, gs, player);
   if(strategicDump) return strategicDump;
 
-  // 1c. Ordinary high-negative fallback for uncertain recipients / missing
+  // 1d. Ordinary high-negative fallback for uncertain recipients / missing
   // scores: use the previous safety-first dump order.
   const highNegatives = valid.filter(isHighNegativeForDump);
   if(highNegatives.length) return sortByNegativityDesc(highNegatives)[0];
 
-  // 1d. Once the important penalty danger is gone, stop chasing void shape and
+  // 1e. Once the important penalty danger is gone, stop chasing void shape and
   // keep future winners in hand when a weaker dump is available.
   if(lateVoidDumpKeepWinnersMode(gs)) {
     const smallHearts = valid.filter(c => c.s === 'H' && c.v <= 5);
@@ -1345,6 +1356,31 @@ const positiveFollowWinners = (cards, gs, player) => {
   return winners.filter(c => c.s !== 'S' || c.v <= 11);
 };
 
+const exposedHighSpadeControlFollowCandidates = (cards, gs, player) => {
+  if(gs.leadSuit !== 'S' || !gs.trick.length) return [];
+  if(queenSpadesPlayed(gs) || queenSpadesInTrick(gs) || queenSpadesInHand(gs, player)) return [];
+  if(gs.trick.length >= 3) return [];
+
+  const laterPlayers = playersAfterCurrentInTrick(gs, player);
+  if(!laterPlayers.length || !laterPlayers.every(p => knownVoidInSuit(gs, p, 'S'))) return [];
+
+  const rank = currentWinningRank(gs);
+  if(rank === null) return [];
+
+  const highWinners = cards.filter(c => c.s === 'S' && (c.v === 13 || c.v === 14) && c.v > rank);
+  if(!highWinners.length) return [];
+
+  const spadesInHand = gs.hands[player].filter(c => c.s === 'S');
+  const losingGuards = cards.filter(c => c.s === 'S' && c.v < 12 && c.v < rank);
+  const lowDuckExposesControl = losingGuards.some(guard => {
+    const remainingSpades = spadesInHand.filter(c => !sameCard(c, guard));
+    return remainingSpades.some(c => c.v === 13 || c.v === 14) &&
+      !remainingSpades.some(c => c.v < 12);
+  });
+
+  return lowDuckExposesControl ? smallestCards(highWinners) : [];
+};
+
 const avoidKingUnderAcePressure = (cards, gs, player) => {
   if(!gs.leadSuit || !gs.trick.length) return cards;
 
@@ -1525,6 +1561,8 @@ const botSuggestionReason = (rule, detail = '') => {
       return 'Der Bot übernimmt hier einen voraussichtlich positiven Stich; bei Pik und vermuteten ♠Q-Gefahren wird die Übernahmechance angepasst.' + suffix;
     case 'positive_follow_duck':
       return 'Der Bot bleibt hier lieber unter dem Stich, weil spätere Spieler nach Risikoabschätzung noch übernehmen oder gefährlich abwerfen könnten.' + suffix;
+    case 'spade_control_unblock':
+      return 'Der Bot übernimmt mit ♠K/♠A, weil alle späteren Spieler in Pik void sind und ein kleiner Pik die hohe Pik-Kontrolle für ♠Q festsetzen würde.' + suffix;
     case 'avoid_bad_follow_win':
       return 'Der Bot vermeidet es, einen aktuell negativen Stich selbst zu gewinnen.' + suffix;
     case 'midgame_follow':
@@ -1549,6 +1587,9 @@ const suggestionDecision = (cards, rule, detail = '') => {
 };
 
 const voidDumpRecommendationCandidates = (valid, gs, player) => {
+  const unshieldedHighSpades = unshieldedHighSpadeDumpCandidates(valid, gs, player);
+  if(unshieldedHighSpades.length) return unshieldedHighSpades;
+
   const emergencyDumps = criticalVoidDumpCandidates(valid, gs, player);
   if(emergencyDumps.length) return [emergencyDumps[0]];
 
@@ -1776,6 +1817,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
 
   // H4: Spade-following intelligence while ♠Q is still live/current.
   if(gs.leadSuit === 'S' && !spadesAreCompleted) {
+    const unblockHighSpade = exposedHighSpadeControlFollowCandidates(candidates, gs, player);
+    if(unblockHighSpade.length) return finish(unblockHighSpade, 'spade_control_unblock');
     candidates = spadeFollowCandidates(candidates, gs, player);
   }
 
