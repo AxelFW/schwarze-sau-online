@@ -1277,7 +1277,6 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
       )}
 
       <CommentBubbles game={game} />
-      <CommentControls room={room} game={game} setError={setError} />
 
       {game.phase === "rest_claim_reveal" && <RestClaimRevealPanel game={game} onHalt={haltRestClaimReveal} onWeiter={continueRestClaimReveal} />}
       {game.phase === "rest_claim_pending" && <RestClaimPendingPanel game={game} onRespond={respondRestClaim} />}
@@ -1296,6 +1295,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   Noch offen: {game.pendingQuetschSeats.map((seat) => game.names[seat]).join(", ")}
                 </div>
               )}
+              <CommentControls room={room} game={game} setError={setError} />
             </div>
           ) : game.quetschNeeded ? (
             <>
@@ -1328,6 +1328,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   />
                 ))}
               </div>
+              <CommentControls room={room} game={game} setError={setError} />
               <div style={{ textAlign: "center", marginTop: 18 }}>
                 <Button onClick={submitQuetsch} disabled={selected.length !== 3}>Karten weitergeben</Button>
               </div>
@@ -1356,6 +1357,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   Noch offen: {game.pendingQuetschSeats.map((seat) => game.names[seat]).join(", ")}
                 </div>
               )}
+              <CommentControls room={room} game={game} setError={setError} />
             </div>
           )}
         </div>
@@ -1424,9 +1426,12 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
           )}
 
           {game.yourSeat === null ? (
-            <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: isTrickPause ? 18 : 0 }}>
-              Du schaust zu. Die Handkarten der Spieler bleiben verdeckt.
-            </div>
+            <>
+              <div style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: isTrickPause ? 18 : 0 }}>
+                Du schaust zu. Die Handkarten der Spieler bleiben verdeckt.
+              </div>
+              <CommentControls room={room} game={game} setError={setError} />
+            </>
           ) : (
             <>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 8, marginTop: isTrickPause ? 18 : 0 }}>
@@ -1444,6 +1449,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
                   );
                 })}
               </div>
+              <CommentControls room={room} game={game} setError={setError} />
             </>
           )}
         </div>
