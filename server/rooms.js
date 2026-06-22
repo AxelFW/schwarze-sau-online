@@ -243,11 +243,18 @@ function roomHostName(room) {
   return room?.seats?.find((seat) => seat.type === "human" && seat.name)?.name || "Host";
 }
 
+function roomIsVisiblePublicTable(room) {
+  if (!defaultRoomSettings(room.settings).publicTable) return false;
+  if (room.status === "playing" && room.game) return true;
+  return room.status === "lobby";
+}
+
 export function listPublicTables() {
   return [...rooms.values()]
-    .filter((room) => room.status === "playing" && room.game && defaultRoomSettings(room.settings).publicTable)
+    .filter(roomIsVisiblePublicTable)
     .map((room) => {
       const settings = defaultRoomSettings(room.settings);
+      const isPlaying = room.status === "playing" && room.game;
       const deck = getBenchmarkDeck(settings.benchmarkDeckId);
       const highscore = deck ? benchmarkHighscoreSnapshot(benchmarkHighscores.get(deck.id)) : null;
       return {
@@ -256,12 +263,13 @@ export function listPublicTables() {
         hostName: roomHostName(room),
         humanPlayers: room.seats.filter((seat) => seat.type === "human").length,
         connectedHumanPlayers: room.seats.filter((seat) => seat.type === "human" && Boolean(seat.socketId)).length,
+        openSeats: room.seats.filter((seat) => seat.type === "open").length,
         availableBotSeats: room.seats.filter((seat) => seat.type === "bot").length,
         spectatorCount: room.spectators?.size || 0,
-        round: Number(room.game?.round || 1),
-        maxRounds: Number(room.game?.maxRounds || 1),
-        phase: room.game?.phase || null,
-        startedAt: room.startedAt || room.createdAt,
+        round: isPlaying ? Number(room.game?.round || 1) : null,
+        maxRounds: isPlaying ? Number(room.game?.maxRounds || 1) : GAMES_PER_RUNDE * settings.matchRutschen,
+        phase: isPlaying ? (room.game?.phase || null) : null,
+        startedAt: isPlaying ? (room.startedAt || room.createdAt) : room.createdAt,
         benchmarkDeck: deck ? {
           id: deck.id,
           name: deck.name,

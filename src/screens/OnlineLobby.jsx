@@ -451,7 +451,7 @@ function PublicTablesPanel({ tables, connected, onJoin, onRefresh }) {
         <div>
           <div style={{ color: "#6dbf8a", fontSize: 12, letterSpacing: 0.5 }}>ÖFFENTLICHE TISCHE</div>
           <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 3 }}>
-            Laufende öffentliche Spiele, denen du beitreten oder bei denen du zuschauen kannst.
+            Öffentliche Tische, die bereitstehen oder schon laufen.
           </div>
         </div>
         <Button onClick={onRefresh} disabled={!connected} style={{ padding: "7px 11px", background: "rgba(255,255,255,0.12)", color: "white" }}>
@@ -460,36 +460,46 @@ function PublicTablesPanel({ tables, connected, onJoin, onRefresh }) {
       </div>
       {rows.length === 0 ? (
         <div style={{ color: "rgba(255,255,255,0.42)", fontSize: 13, padding: "6px 0" }}>
-          Gerade läuft kein öffentlicher Tisch.
+          Gerade gibt es keinen öffentlichen Tisch.
         </div>
       ) : (
         <div style={{ display: "grid", gap: 8 }}>
-          {rows.map((table) => (
-            <div key={table.roomCode} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: 11, borderRadius: 11, background: "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
-                  <strong style={{ color: "#f4c430" }}>{table.roomCode}</strong>
-                  <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(244,196,48,0.12)", border: "1px solid rgba(244,196,48,0.28)", color: "#f4c430" }}>läuft</span>
-                  {table.benchmarkDeck && (
-                    <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.28)", color: "#bfdbfe" }}>
-                      Benchmark: {table.benchmarkDeck.name}
+          {rows.map((table) => {
+            const isWaiting = table.status === "lobby";
+            const openSeats = Number(table.openSeats || 0);
+            const seatText = openSeats === 1 ? "1 Platz frei" : openSeats > 1 ? `${openSeats} Plätze frei` : "voll besetzt";
+            const progressText = isWaiting
+              ? `${seatText} · ${table.maxRounds || "?"} Spiele`
+              : `Spiel ${table.round || "?"}/${table.maxRounds || "?"}`;
+            return (
+              <div key={table.roomCode} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: 11, borderRadius: 11, background: "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+                    <strong style={{ color: "#f4c430" }}>{table.roomCode}</strong>
+                    <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: isWaiting ? "rgba(109,191,138,0.12)" : "rgba(244,196,48,0.12)", border: isWaiting ? "1px solid rgba(109,191,138,0.28)" : "1px solid rgba(244,196,48,0.28)", color: isWaiting ? "#6dbf8a" : "#f4c430" }}>
+                      {isWaiting ? "wartet" : "läuft"}
                     </span>
+                    {table.benchmarkDeck && (
+                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.28)", color: "#bfdbfe" }}>
+                        Benchmark: {table.benchmarkDeck.name}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    Host: {table.hostName || "Host"} · Menschen: {table.humanPlayers}/4 · {progressText}
+                  </div>
+                  {table.benchmarkDeck?.highscore && (
+                    <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12, marginTop: 3 }}>
+                      Highscore {table.benchmarkDeck.name}: {highscoreText(table.benchmarkDeck.highscore)}
+                    </div>
                   )}
                 </div>
-                <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  Host: {table.hostName || "Host"} · Menschen: {table.humanPlayers}/4 · Spiel {table.round}/{table.maxRounds}
-                </div>
-                {table.benchmarkDeck?.highscore && (
-                  <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12, marginTop: 3 }}>
-                    Highscore {table.benchmarkDeck.name}: {highscoreText(table.benchmarkDeck.highscore)}
-                  </div>
-                )}
+                <Button onClick={() => onJoin(table.roomCode)} disabled={!connected} style={{ padding: "8px 12px" }}>
+                  Beitreten
+                </Button>
               </div>
-              <Button onClick={() => onJoin(table.roomCode)} disabled={!connected} style={{ padding: "8px 12px" }}>
-                Beitreten
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -1820,7 +1830,7 @@ export default function OnlineLobby({ onBack }) {
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={activePublicTable} disabled={benchmarkMode} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
-                Tisch nach Spielstart öffentlich auf der Startseite anzeigen
+                Tisch öffentlich in der Lobby anzeigen
               </label>
               {benchmarkMode && (
                 <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>
@@ -1967,7 +1977,7 @@ export default function OnlineLobby({ onBack }) {
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(255,255,255,0.72)", fontSize: 13 }}>
                 <input type="checkbox" checked={activePublicTable} disabled={benchmarkMode} onChange={(e) => { setPreferredPublicTable(e.target.checked); if (room) updateRoomSettings({ publicTable: e.target.checked }); }} />
-                Tisch nach Spielstart öffentlich auf der Startseite anzeigen
+                Tisch öffentlich in der Lobby anzeigen
               </label>
               {benchmarkMode && (
                 <div style={{ color: "rgba(255,255,255,0.48)", fontSize: 12 }}>

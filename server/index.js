@@ -453,6 +453,7 @@ io.on("connection", (socket) => {
       socket.join(result.room.roomCode);
       clearEmptyTableCloseTimer(result.room.roomCode);
       io.to(result.room.roomCode).emit("roomUpdated", result.room);
+      emitPublicLobbyState();
       acknowledge(ack, { ok: true, ...saveTokenPayload(result) });
     } catch (err) {
       sendError(socket, err.message);
@@ -509,6 +510,7 @@ io.on("connection", (socket) => {
       const result = claimSeat({ roomCode: payload.roomCode, socketId: socket.id, name: payload.name, seat: payload.seat });
       socket.join(result.room.roomCode);
       io.to(result.room.roomCode).emit("roomUpdated", result.room);
+      emitPublicLobbyState();
       acknowledge(ack, { ok: true, ...saveTokenPayload(result) });
     } catch (err) {
       sendError(socket, err.message);
@@ -532,6 +534,7 @@ io.on("connection", (socket) => {
     try {
       const room = setSeatBot({ roomCode: payload.roomCode, socketId: socket.id, seat: payload.seat });
       io.to(room.roomCode).emit("roomUpdated", room);
+      emitPublicLobbyState();
       acknowledge(ack, { ok: true, room });
     } catch (err) {
       sendError(socket, err.message);
@@ -564,6 +567,7 @@ io.on("connection", (socket) => {
     try {
       const room = setSeatOpen({ roomCode: payload.roomCode, socketId: socket.id, seat: payload.seat });
       io.to(room.roomCode).emit("roomUpdated", room);
+      emitPublicLobbyState();
       acknowledge(ack, { ok: true, room });
     } catch (err) {
       sendError(socket, err.message);
