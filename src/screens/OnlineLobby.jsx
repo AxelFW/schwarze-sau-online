@@ -665,23 +665,50 @@ function PointsDevelopmentGraph({ game }) {
   );
 }
 
-function LastTrickBanner({ game }) {
+function LastTrickBanner({ game, roomCode }) {
+  const viewerKey = useMemo(() => {
+    const seat = game?.yourSeat === null || game?.yourSeat === undefined
+      ? null
+      : normalizeSeat(game.yourSeat);
+    return `${roomCode || "room"}:${seat === null ? "spectator" : `seat-${seat}`}`;
+  }, [roomCode, game?.yourSeat]);
+  const [openByViewerKey, setOpenByViewerKey] = useState({});
+  const open = Boolean(openByViewerKey[viewerKey]);
+
+  function setOpenForViewer(nextOpen) {
+    setOpenByViewerKey((prev) => (
+      prev[viewerKey] === nextOpen ? prev : { ...prev, [viewerKey]: nextOpen }
+    ));
+  }
+
   if (!game.lastTrick) return null;
   const lt = game.lastTrick;
   return (
     <div style={{ marginTop: 14, padding: 12, borderRadius: 14, background: "rgba(0,0,0,0.28)", border: "1px solid rgba(255,255,255,0.08)" }}>
-      <div style={{ color: lt.pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold", marginBottom: 8 }}>
-        Letzter Stich: {game.names[lt.winner]} {lt.pts >= 0 ? "+" : ""}{lt.pts} Punkte
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ color: lt.pts >= 0 ? "#4ade80" : "#f87171", fontWeight: "bold" }}>
+          Letzter Stich: {game.names[lt.winner]} {lt.pts >= 0 ? "+" : ""}{lt.pts} Punkte
+        </div>
+        <Button
+          onClick={() => setOpenForViewer(!open)}
+          style={{ padding: "7px 11px", background: open ? "rgba(255,255,255,0.12)" : undefined, color: open ? "white" : undefined }}
+        >
+          {open ? "Schließen" : "Anzeigen"}
+        </Button>
       </div>
-      <CompassTrickTable
-        names={game.names}
-        seatTypes={game.seatTypes}
-        trick={lt.trick}
-        winnerSeat={lt.winner}
-        leadSeat={lt.leader}
-        cardSize="sm"
-        viewSeat={game.yourSeat}
-      />
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          <CompassTrickTable
+            names={game.names}
+            seatTypes={game.seatTypes}
+            trick={lt.trick}
+            winnerSeat={lt.winner}
+            leadSeat={lt.leader}
+            cardSize="sm"
+            viewSeat={game.yourSeat}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1283,7 +1310,7 @@ function OnlineGame({ room, game, setError, onTakeOverBot }) {
 
       <ScoreStrip game={game} />
       {game.showPenaltyTracker && <NegativeCardsBar game={game} />}
-      {game.phase !== "rest_claim_reveal" && <LastTrickBanner game={game} />}
+      {game.phase !== "rest_claim_reveal" && <LastTrickBanner game={game} roomCode={room.roomCode} />}
       <SuggestionPanel game={game} />
 
       {game.lastRound && (
