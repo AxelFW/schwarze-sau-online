@@ -6,7 +6,15 @@ import {
   clearFinishedTrick,
   getValidCards,
 } from "../shared/game/engine.js";
-import { heuristicQuetschPick, chooseHeuristicCard, recommendHeuristicCards, recommendHeuristicQuetschCards } from "../shared/game/heuristicBot.js";
+import {
+  BOT_TARGETING_PROFILE_LEADER_HUNTER,
+  BOT_TARGETING_PROFILE_NEUTRAL,
+  BOT_TARGETING_PROFILE_NORMAL,
+  heuristicQuetschPick,
+  chooseHeuristicCard,
+  recommendHeuristicCards,
+  recommendHeuristicQuetschCards,
+} from "../shared/game/heuristicBot.js";
 import { sameCard, sortHand, cardPts, isPenalty, makeSeededRng } from "../shared/game/cards.js";
 import {
   BENCHMARK_DECKS,
@@ -93,6 +101,31 @@ function randomBotName(room) {
   const available = BOT_FIRST_NAMES.filter(name => !usedBase.has(name));
   const pool = available.length ? available : BOT_FIRST_NAMES;
   return pool[Math.floor(Math.random() * pool.length)] + ' (B)';
+}
+
+const botBaseName = (name) => String(name || "").replace(/\s*\(B\)\s*$/, "").trim();
+const parseBotNameSet = (value, fallback = "") => new Set(
+  String(value ?? fallback)
+    .split(",")
+    .map(botBaseName)
+    .filter(Boolean)
+);
+
+const LEADER_HUNTER_BOT_NAMES = parseBotNameSet(process.env.BOT_LEADER_HUNTER_NAMES, "Vollrath");
+const NEUTRAL_BOT_NAMES = parseBotNameSet(process.env.BOT_NEUTRAL_NAMES);
+
+function botTargetingProfileForSeat(room, seatIndex) {
+  const seat = room?.seats?.[seatIndex];
+  if (seat?.type !== "bot") return BOT_TARGETING_PROFILE_NORMAL;
+
+  const name = botBaseName(seat.name);
+  if (LEADER_HUNTER_BOT_NAMES.has(name)) return BOT_TARGETING_PROFILE_LEADER_HUNTER;
+  if (NEUTRAL_BOT_NAMES.has(name)) return BOT_TARGETING_PROFILE_NEUTRAL;
+  return BOT_TARGETING_PROFILE_NORMAL;
+}
+
+function botTargetingProfiles(room) {
+  return [0, 1, 2, 3].map((seat) => botTargetingProfileForSeat(room, seat));
 }
 
 
@@ -333,6 +366,7 @@ function botDecisionGameState(room) {
   return {
     ...room.game.gs,
     ...publicScoresForBot(room),
+    botTargetingProfiles: botTargetingProfiles(room),
   };
 }
 
@@ -407,8 +441,13 @@ function ensureBotQuetschSelections(room) {
   if (!game || game.phase !== "quetsch") return;
   for (let seat = 0; seat < 4; seat++) {
     if (isBotControlledSeat(room, seat) && !game.quetschSelections[seat]) {
-      game.quetschSelections[seat] = heuristicQuetschPick(game.gs.hands[seat], botDecisionGameState(room), seat);
-      log("Bot wählt Quetsch-Karten", { roomCode: room.roomCode, seat });
+      const decisionGs = botDecisionGameState(room);
+      game.quetschSelections[seat] = heuristicQuetschPick(game.gs.hands[seat], decisionGs, seat);
+      log("Bot wählt Quetsch-Karten", {
+        roomCode: room.roomCode,
+        seat,
+        botTargetingProfile: decisionGs.botTargetingProfiles?.[seat],
+      });
     }
   }
 }
@@ -1141,8 +1180,14 @@ export function advanceOneBotCard(room) {
     return true;
   }
 
-  const card = chooseHeuristicCard(botDecisionGameState(room), player);
-  log("Bot spielt Karte", { roomCode: room.roomCode, seat: player, card });
+  const decisionGs = botDecisionGameState(room);
+  const card = chooseHeuristicCard(decisionGs, player);
+  log("Bot spielt Karte", {
+    roomCode: room.roomCode,
+    seat: player,
+    card,
+    botTargetingProfile: decisionGs.botTargetingProfiles?.[player],
+  });
   applyOnlineCard(room, player, card);
   advanceNonCardPhases(room);
   touch(room);

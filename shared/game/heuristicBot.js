@@ -2,6 +2,74 @@ import {
   VALS, QUEEN_SPADES, sameCard, cardKey, cardPts, getValidIdxs, suitIdx, sortHand,
 } from './cards.js';
 
+export const BOT_TARGETING_PROFILE_NORMAL = 'normal';
+export const BOT_TARGETING_PROFILE_LEADER_HUNTER = 'leaderHunter';
+export const BOT_TARGETING_PROFILE_NEUTRAL = 'neutral';
+export const BOT_TARGETING_PROFILES = [
+  BOT_TARGETING_PROFILE_NORMAL,
+  BOT_TARGETING_PROFILE_LEADER_HUNTER,
+  BOT_TARGETING_PROFILE_NEUTRAL,
+];
+
+const TARGETING_PROFILE_CONFIGS = Object.freeze({
+  [BOT_TARGETING_PROFILE_NORMAL]: Object.freeze({
+    relationMode: 'normal',
+    quetschQueenTrapBase: Object.freeze({target: 96, nontarget: 62, unknown: 74}),
+    voidDumpTargetWeight: 2.05,
+    voidDumpNontargetWeight: 0.25,
+    voidDumpTargetShapeWeight: 0.20,
+    voidDumpNontargetShapeWeight: 1.65,
+    voidDumpNontargetPoisonPenalty: 22,
+    spadeExposureTargetScale: 1,
+    spadeExposureNontargetScale: 1,
+    queenPressureTargetMinTrick: 2,
+    queenPressureDefaultMinTrick: 3,
+    targetAwareVoidLeads: true,
+  }),
+  [BOT_TARGETING_PROFILE_LEADER_HUNTER]: Object.freeze({
+    relationMode: 'betterPlacedOnly',
+    quetschQueenTrapBase: Object.freeze({target: 116, nontarget: 48, unknown: 60}),
+    voidDumpTargetWeight: 3.35,
+    voidDumpNontargetWeight: 0.08,
+    voidDumpTargetShapeWeight: 0.05,
+    voidDumpNontargetShapeWeight: 1.15,
+    voidDumpNontargetPoisonPenalty: 42,
+    spadeExposureTargetScale: 0.45,
+    spadeExposureNontargetScale: 1.55,
+    queenPressureTargetMinTrick: 1,
+    queenPressureDefaultMinTrick: 4,
+    targetAwareVoidLeads: true,
+  }),
+  [BOT_TARGETING_PROFILE_NEUTRAL]: Object.freeze({
+    relationMode: 'neutral',
+    quetschQueenTrapBase: Object.freeze({target: 74, nontarget: 74, unknown: 74}),
+    voidDumpTargetWeight: 0,
+    voidDumpNontargetWeight: 0,
+    voidDumpTargetShapeWeight: 0,
+    voidDumpNontargetShapeWeight: 0,
+    voidDumpNontargetPoisonPenalty: 0,
+    spadeExposureTargetScale: 1,
+    spadeExposureNontargetScale: 1,
+    queenPressureTargetMinTrick: 3,
+    queenPressureDefaultMinTrick: 3,
+    targetAwareVoidLeads: false,
+  }),
+});
+
+const normalizeTargetingProfile = profile =>
+  BOT_TARGETING_PROFILES.includes(profile) ? profile : BOT_TARGETING_PROFILE_NORMAL;
+
+const targetingProfileFor = (gs, player) => {
+  const profile = Array.isArray(gs?.botTargetingProfiles)
+    ? gs.botTargetingProfiles[player]
+    : gs?.botTargetingProfile;
+  return normalizeTargetingProfile(profile);
+};
+
+const targetingConfigFor = (gs, player) =>
+  TARGETING_PROFILE_CONFIGS[targetingProfileFor(gs, player)] ??
+  TARGETING_PROFILE_CONFIGS[BOT_TARGETING_PROFILE_NORMAL];
+
 // Auto-quetsch for non-human seats. This mirrors the training-side heuristic:
 // avoid isolated ♠Q danger, dangerous high hearts, keep low safety cards,
 // prepare suits with A, and create cheap C/D voids when possible.
@@ -105,10 +173,13 @@ export const heuristicQuetschPick = (hand, gs = null, player = null) => {
     hasQSpades &&
     highSpades.length === 0 &&
     lowSpadesBelowQueen.length >= 3;
+  const targetingConfigForQuetsch = targetingConfigFor(gs, player);
   const politicalQueenTrapBase =
-    leftRelationForQuetsch === 'target' ? 96 :
-    leftRelationForQuetsch === 'nontarget' ? 62 :
-    74;
+    leftRelationForQuetsch === 'target'
+      ? targetingConfigForQuetsch.quetschQueenTrapBase.target
+      : leftRelationForQuetsch === 'nontarget'
+        ? targetingConfigForQuetsch.quetschQueenTrapBase.nontarget
+        : targetingConfigForQuetsch.quetschQueenTrapBase.unknown;
 
   // 1. Emergency bucket.
   // ♠Q with ♠A/♠K and fewer than four total spades is especially toxic: pass
@@ -430,11 +501,20 @@ const effectiveScores = gs => {
 };
 
 const playerRankRelation = (gs, player, recipient) => {
+  const targetingConfig = targetingConfigFor(gs, player);
+  if(targetingConfig.relationMode === 'neutral') return 'peer';
+
   const scores = effectiveScores(gs);
   if(!scores || !Number.isInteger(recipient) || recipient < 0 || recipient >= scores.length) return 'unknown';
 
   const own = scores[player];
   const rec = scores[recipient];
+  if(targetingConfig.relationMode === 'betterPlacedOnly') {
+    if(rec > own) return 'target';
+    if(rec === own) return 'peer';
+    return 'nontarget';
+  }
+
   const best = Math.max(...scores);
   const ownIsTop = own === best;
 
@@ -511,17 +591,21 @@ const spadeExposurePenalty = (card, gs, player, relation) => {
   const hand = gs.hands[player];
   const qInHand = queenSpadesInHand(gs, player);
   const target = relation === 'target';
+  const targetingConfig = targetingConfigFor(gs, player);
+  const scale = value => Math.round(value * (target
+    ? targetingConfig.spadeExposureTargetScale
+    : targetingConfig.spadeExposureNontargetScale));
 
   // Dumping ♠Q into a non-target trick wastes the poison and removes a guarded
   // card that could have hit a direct rival later.
-  if(sameCard(card, QUEEN_SPADES)) return target ? 0 : 45;
+  if(sameCard(card, QUEEN_SPADES)) return scale(target ? 0 : 45);
 
   // If we hold ♠Q, non-queen spades are guards.  Do not spend them merely for
   // shape against a lower-ranked recipient.
   if(qInHand) {
     const guardsAfter = hand.filter(c => c.s === 'S' && !sameCard(c, QUEEN_SPADES) && !sameCard(c, card)).length;
-    if(guardsAfter < 2) return target ? 10 : 45;
-    return target ? 0 : 12;
+    if(guardsAfter < 2) return scale(target ? 10 : 45);
+    return scale(target ? 0 : 12);
   }
 
   // If ♠Q is still outside and we hold ♠K/♠A, low spades protect those high
@@ -532,9 +616,9 @@ const spadeExposurePenalty = (card, gs, player, relation) => {
     const highSpadesHeld = hand.some(c => c.s === 'S' && (c.v === 13 || c.v === 14));
     if(card.v < 12 && highSpadesHeld) {
       const lowGuardsAfter = hand.filter(c => c.s === 'S' && c.v < 12 && !sameCard(c, card)).length;
-      if(lowGuardsAfter < 2) return target ? 8 : 38;
+      if(lowGuardsAfter < 2) return scale(target ? 8 : 38);
     }
-    if(card.v === 13 || card.v === 14) return target ? 0 : 16;
+    if(card.v === 13 || card.v === 14) return scale(target ? 0 : 16);
   }
 
   return 0;
@@ -548,8 +632,15 @@ const strategicVoidDump = (valid, gs, player) => {
   if(relation === 'unknown' || relation === 'peer') return null;
 
   const keepWinnersMode = lateVoidDumpKeepWinnersMode(gs);
-  const targetWeight = relation === 'target' ? 2.05 : 0.25;
-  const shapeWeight = keepWinnersMode ? 0 : (relation === 'target' ? 0.20 : 1.65);
+  const targetingConfig = targetingConfigFor(gs, player);
+  const targetWeight = relation === 'target'
+    ? targetingConfig.voidDumpTargetWeight
+    : targetingConfig.voidDumpNontargetWeight;
+  const shapeWeight = keepWinnersMode
+    ? 0
+    : (relation === 'target'
+      ? targetingConfig.voidDumpTargetShapeWeight
+      : targetingConfig.voidDumpNontargetShapeWeight);
 
   const scored = valid.map(card => {
     const penalty = Math.max(0, -cardPts(card));
@@ -568,7 +659,7 @@ const strategicVoidDump = (valid, gs, player) => {
     // Against non-targets, keep truly poisonous cards for better targets unless
     // they also solve a major hand-shape problem.
     if(relation === 'nontarget' && (sameCard(card, QUEEN_SPADES) || (card.s === 'H' && card.v >= 11))) {
-      score -= 22;
+      score -= targetingConfig.voidDumpNontargetPoisonPenalty;
     }
 
     // Stable tie-breaks: prefer larger poison against targets, but safer medium
@@ -733,7 +824,10 @@ const passedQueenPressureSpades = (valid, gs, player) => {
 
   const leftPlayer = (player + 1) % 4;
   const leftRelation = playerRankRelation(gs, player, leftPlayer);
-  const minTrick = leftRelation === 'target' ? 2 : 3;
+  const targetingConfig = targetingConfigFor(gs, player);
+  const minTrick = leftRelation === 'target'
+    ? targetingConfig.queenPressureTargetMinTrick
+    : targetingConfig.queenPressureDefaultMinTrick;
   if(gs.tricksPlayed < minTrick) return [];
 
   const spadesInHand = valid.filter(c => c.s === 'S' && c.v < 12);
@@ -1058,7 +1152,10 @@ const targetAwareVoidLeadDecision = (cards, gs, player) => {
   // If a target is known void in a candidate suit, reduce the appeal of that
   // suit because the target can dump safely.  When a safe ♠/♥ pressure lead
   // survived earlier filters, prefer it directly.
-  if(!cards.length || lowNegativePressureMode(gs)) return {cards, pressure: []};
+  const targetingConfig = targetingConfigFor(gs, player);
+  if(!cards.length || lowNegativePressureMode(gs) || !targetingConfig.targetAwareVoidLeads) {
+    return {cards, pressure: []};
+  }
 
   const givesTargetFreeDump = card => knownVoidDumpersInSuit(gs, player, card.s)
     .some(p => playerRankRelation(gs, player, p) === 'target');
