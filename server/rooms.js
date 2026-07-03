@@ -19,6 +19,10 @@ import {
   chooseRlCard,
   rlQuetschPick,
 } from "../shared/game/rlBot.js";
+import {
+  chooseNonResidualRlCard,
+  nonResidualRlQuetschPick,
+} from "../shared/game/nonResidualRlBot.js";
 import { sameCard, sortHand, cardPts, isPenalty, makeSeededRng } from "../shared/game/cards.js";
 import {
   BENCHMARK_DECKS,
@@ -376,15 +380,15 @@ function botDecisionGameState(room) {
 }
 
 function chooseBotQuetschCards(hand, gs, seat) {
-  return BOT_PLAY_POLICY === "heuristic"
-    ? heuristicQuetschPick(hand, gs, seat)
-    : rlQuetschPick(hand, gs, seat);
+  if (BOT_PLAY_POLICY === "heuristic") return heuristicQuetschPick(hand, gs, seat);
+  if (BOT_PLAY_POLICY === "nonresidual") return nonResidualRlQuetschPick(hand, gs, seat);
+  return rlQuetschPick(hand, gs, seat);
 }
 
 function chooseBotCard(gs, player) {
-  return BOT_PLAY_POLICY === "heuristic"
-    ? chooseHeuristicCard(gs, player)
-    : chooseRlCard(gs, player);
+  if (BOT_PLAY_POLICY === "heuristic") return chooseHeuristicCard(gs, player);
+  if (BOT_PLAY_POLICY === "nonresidual") return chooseNonResidualRlCard(gs, player);
+  return chooseRlCard(gs, player);
 }
 
 function playerOwnsDisconnectedSeat(seat, token, name) {
