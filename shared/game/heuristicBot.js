@@ -1052,10 +1052,14 @@ const protectedNonQueenSpadeFallbackCandidates = (valid, gs, player) => {
   return lowNonQueenSpades.length ? smallestCards(lowNonQueenSpades) : [];
 };
 
-const highestLosingCards = (cards, gs) => {
+const losingCards = (cards, gs) => {
   const rank = currentWinningRank(gs);
   if(rank === null) return [];
-  const losing = cards.filter(c => c.v < rank);
+  return cards.filter(c => c.v < rank);
+};
+
+const highestLosingCards = (cards, gs) => {
+  const losing = losingCards(cards, gs);
   return losing.length ? largestCards(losing) : [];
 };
 
@@ -1074,6 +1078,65 @@ const highWinProbability = (card, gs, player) => {
   const lower = unseen.filter(c => c.v < card.v).length;
   const higher = unseen.filter(c => c.v > card.v).length;
   return higher === 0 || lower / unseen.length >= HIGH_WIN_LOWER_SHARE;
+};
+
+const likelyFutureWinner = (card, gs, player) =>
+  cardPts(card) === 0 && highHandAssetValue(card, gs, player) > 0;
+
+const likelyFutureAvoider = (card, gs, player) => {
+  if(cardPts(card) < 0) return false;
+
+  const unseen = unseenCardsOfSuit(gs, player, card.s);
+  const higher = unseen.filter(c => c.v > card.v).length;
+  const lower = unseen.filter(c => c.v < card.v).length;
+  const total = higher + lower;
+  if(higher <= 0 || total <= 0) return false;
+
+  const higherShare = higher / total;
+  return higher >= 2 && higherShare >= 0.5;
+};
+
+const followPortfolioPreservationMode = (gs, player) => {
+  if(!gs.leadSuit || gs.leadSuit === 'H') return false;
+  if(gs.leadSuit === 'S' && !queenSpadesPlayed(gs)) return false;
+  if(lowNegativePressureMode(gs) || harvestModeActive(gs, player)) return false;
+  return penaltiesStillOut(gs, player);
+};
+
+const pressureAwareLosingFollowCards = (cards, gs, player) => {
+  const losing = losingCards(cards, gs);
+  if(!losing.length) return [];
+
+  const fallback = largestCards(losing);
+  if(!followPortfolioPreservationMode(gs, player)) return fallback;
+
+  const suit = gs.leadSuit;
+  const suitCards = gs.hands[player].filter(c => c.s === suit);
+  if(suitCards.length <= 1) return fallback;
+
+  const scored = losing.map(card => {
+    const remainingSuitCards = suitCards.filter(c => !sameCard(c, card));
+    const keepsWinner = remainingSuitCards.some(c => likelyFutureWinner(c, gs, player));
+    const keepsAvoider = remainingSuitCards.some(c => likelyFutureAvoider(c, gs, player));
+    const spendsOnlyWinner = likelyFutureWinner(card, gs, player) && !keepsWinner;
+    const spendsOnlyAvoider = likelyFutureAvoider(card, gs, player) && !keepsAvoider;
+
+    let score = 0;
+    if(spendsOnlyAvoider) score += 90;
+    if(spendsOnlyWinner) score += 70;
+    if(keepsWinner && keepsAvoider) score -= 20;
+
+    return {card, score};
+  });
+
+  scored.sort((a,b) =>
+    a.score - b.score ||
+    b.card.v - a.card.v
+  );
+  const best = scored[0];
+  return scored
+    .filter(x => x.score === best.score && x.card.v === best.card.v)
+    .map(x => x.card);
 };
 
 const unseenRankCounts = (card, gs, player) => {
@@ -1130,6 +1193,13 @@ const leastFutureWinnerValueCards = (cards, gs, player) => {
 };
 
 const quetschReceivedFromRightFor = (gs, player) => gs.quetschReceivedFromRight?.[player] ?? [];
+const preferQuetschReceivedTieCards = (cards, gs, player) => {
+  if(!cards?.length || cards.length <= 1) return cards;
+  const received = new Set(quetschReceivedFromRightFor(gs, player).map(cardKey));
+  if(!received.size) return cards;
+  const preferred = cards.filter(c => received.has(cardKey(c)));
+  return preferred.length ? preferred : cards;
+};
 const quetschReceivedCountBySuit = (gs, player, suit) =>
   quetschReceivedFromRightFor(gs, player).filter(c => c.s === suit).length;
 const sideSuit = suit => suit === 'C' || suit === 'D';
@@ -1686,7 +1756,7 @@ const botSuggestionReason = (rule, detail = '') => {
     case 'avoid_bad_follow_win':
       return 'Der Bot vermeidet es, einen aktuell negativen Stich selbst zu gewinnen.' + suffix;
     case 'midgame_follow':
-      return 'Im Mittelspiel wirft der Bot die höchste Karte ab, die den Stich nicht gewinnt.' + suffix;
+      return 'Im Mittelspiel spielt der Bot eine nicht gewinnende Karte; bei Strafkartendruck erhält er hohe Gewinner und niedrige Ausstiege möglichst.' + suffix;
     case 'normal_follow':
       return 'Der Bot wählt unter den sicheren gültigen Karten nach seiner normalen Stichlogik.' + suffix;
     case 'normal_lead':
@@ -1760,8 +1830,9 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   const isLeading = !gs.leadSuit || gs.trick.length === 0;
   const finish = (cards, rule, detail = '') => {
     const clean = uniqueCardsByKey(cards);
-    if(stochastic) return suggestionDecision([randomFrom(clean)], rule, detail);
-    return suggestionDecision(clean, rule, detail);
+    const preferred = preferQuetschReceivedTieCards(clean, gs, player);
+    if(stochastic) return suggestionDecision([randomFrom(preferred)], rule, detail);
+    return suggestionDecision(preferred, rule, detail);
   };
 
   if(!valid.length) return suggestionDecision([], 'normal_follow');
@@ -1966,7 +2037,7 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   // New H9b: third position — probabilistically overtake positive tricks.
   if(gs.trick.length === 2) {
     const positiveWinners = positiveFollowWinners(candidates, gs, player);
-    const losing = highestLosingCards(candidates, gs);
+    const losing = pressureAwareLosingFollowCards(candidates, gs, player);
 
     if(positiveWinners.length && losing.length) {
       const fourthPlayer = (player + 1) % 4;
@@ -1992,7 +2063,7 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   // but only as often as both later players are plausibly non-void.
   if(gs.trick.length === 1) {
     const positiveWinners = positiveFollowWinners(candidates, gs, player);
-    const losing = highestLosingCards(candidates, gs);
+    const losing = pressureAwareLosingFollowCards(candidates, gs, player);
 
     if(positiveWinners.length && losing.length) {
       const thirdPlayer = (player + 1) % 4;
@@ -2017,11 +2088,17 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     }
   }
 
-  // H10 revised: Midgame follow — shed the largest non-winning card.
+  // H10 revised: Midgame follow — shed a non-winning card, but under live
+  // penalty pressure preserve useful suit roles when a middle card can do it.
   if(gs.tricksPlayed >= 4 && gs.tricksPlayed <= 10) {
-    const losing = highestLosingCards(candidates, gs);
+    const losing = pressureAwareLosingFollowCards(candidates, gs, player);
     candidates = losing.length ? losing : smallestCards(candidates);
     return finish(candidates, 'midgame_follow');
+  }
+
+  if(avoidedRiskyWin) {
+    const losing = pressureAwareLosingFollowCards(candidates, gs, player);
+    if(losing.length) return finish(losing, 'avoid_bad_follow_win');
   }
 
   return finish(candidates, avoidedRiskyWin ? 'avoid_bad_follow_win' : 'normal_follow');
