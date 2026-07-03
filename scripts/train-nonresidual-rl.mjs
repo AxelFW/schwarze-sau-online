@@ -437,9 +437,10 @@ const main = async () => {
     },
   }, null, 2));
 
+  const initialSelectionMatches = selectionRecheckTop > 0 ? selectionRecheckMatches : matches;
   const initialTrain = await evaluateWeightsParallel(mean, {
-    seed,
-    matches,
+    seed: selectionRecheckTop > 0 ? seed + 131071 : seed,
+    matches: initialSelectionMatches,
     rounds,
     baselineModel: RL_POLICY,
     legalDeviationThreshold: meanDeviationThreshold,
@@ -459,6 +460,7 @@ const main = async () => {
 
   console.log(JSON.stringify({
     event: 'initial',
+    matches: initialSelectionMatches,
     legalDeviationThreshold: meanDeviationThreshold,
     train: initialTrain,
   }));
