@@ -366,6 +366,7 @@ const HIGH_WIN_LOWER_SHARE = 0.75;
 // winning positive tricks instead of over-avoiding void-dump risk.
 const HARVEST_MAX_SINGLE_OUTSIDE_PENALTY = 8;
 const HARVEST_MAX_TOTAL_OUTSIDE_PENALTY_RATIO = 0.65;
+const HARVEST_ASSET_TOTAL_PENALTY_RATIO = 0.80;
 const HARVEST_MIN_PROJECTED_NET = 1;
 
 const randomFrom = cards => cards[Math.floor(Math.random() * cards.length)];
@@ -912,6 +913,25 @@ const suitVoidPenaltyRisk = (gs, player, suit) => {
   return 10 - worstDump < HARVEST_MIN_PROJECTED_NET;
 };
 
+const projectedLeadNetFloor = (card, gs, player) =>
+  10 + cardPts(card) - worstVoidDumpCost(gs, player, card.s);
+
+const highHandAssetValue = (card, gs, player) => {
+  if(!card || sameCard(card, QUEEN_SPADES)) return 0;
+
+  const unseen = unseenCardsOfSuit(gs, player, card.s);
+  const lower = unseen.filter(c => c.v < card.v).length;
+  const higher = unseen.filter(c => c.v > card.v).length;
+  const lowerShare = unseen.length ? lower / unseen.length : 1;
+  const likelyWinner = higher === 0 || lowerShare >= HIGH_WIN_LOWER_SHARE;
+  if(!likelyWinner) return 0;
+
+  return Math.max(0, 10 + cardPts(card));
+};
+
+const harvestAssetNet = (gs, player) =>
+  (gs.hands[player] || []).reduce((sum, card) => sum + highHandAssetValue(card, gs, player), 0);
+
 const harvestModeActive = (gs, player) => {
   if(lowNegativePressureMode(gs)) return true;
   const penalties = remainingPenaltiesOutside(gs, player);
@@ -919,16 +939,19 @@ const harvestModeActive = (gs, player) => {
   if(penalties.some(c => sameCard(c, QUEEN_SPADES))) return false;
 
   const worstSingle = Math.max(...penalties.map(c => remainingPenaltyCost([c])));
+  const totalCost = remainingPenaltyCost(penalties);
+
+  // Asset-aware harvest: if the hand has enough likely winners, the total
+  // remaining penalty cost matters more than the largest single heart.
+  const assetNet = harvestAssetNet(gs, player);
+  if(assetNet > 0 && totalCost <= HARVEST_ASSET_TOTAL_PENALTY_RATIO * assetNet) return true;
+
   if(worstSingle > HARVEST_MAX_SINGLE_OUTSIDE_PENALTY) return false;
 
   const remainingTricks = Math.max(1, 13 - gs.tricksPlayed);
   const remainingBonus = 10 * remainingTricks;
-  const totalCost = remainingPenaltyCost(penalties);
   return totalCost <= HARVEST_MAX_TOTAL_OUTSIDE_PENALTY_RATIO * remainingBonus;
 };
-
-const projectedLeadNetFloor = (card, gs, player) =>
-  10 + cardPts(card) - worstVoidDumpCost(gs, player, card.s);
 
 const highUnplayedCount = (gs, player, suit) => {
   const known = new Set(knownCardsFor(gs, player).map(cardKey));
@@ -1782,7 +1805,7 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
         if(nonQueenSpades.length) return finish(nonQueenSpades, 'spade_safety_lead');
         return finish([candidates.find(c => sameCard(c, QUEEN_SPADES)) ?? valid[0]], 'spade_safety_lead');
       }
-    } else {
+    } else if(!queenSpadesPlayed(gs)) {
       const noSpadeAboveQueen = candidates.filter(c => !(c.s === 'S' && c.v > 12));
       if(noSpadeAboveQueen.length) candidates = noSpadeAboveQueen;
     }
