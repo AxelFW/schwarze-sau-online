@@ -90,6 +90,7 @@ const evaluateWeights = (weights, {
   rounds,
   baselineModel = RL_POLICY,
   pairedBaseline = true,
+  deltaWeight = 1,
   rawMarginWeight = 0.75,
   negativeRawMarginPenalty = 1.25,
   stderrPenalty = 0.35,
@@ -148,10 +149,12 @@ const evaluateWeights = (weights, {
   const marginStdErr = Math.sqrt(marginVariance / Math.max(1, matches));
   const rawMarginPenalty = avgMargin < 0 ? Math.abs(avgMargin) * negativeRawMarginPenalty : 0;
   return {
-    fitness: avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty - stderrPenalty * marginStdErr - failures * 100,
+    fitness: deltaWeight * avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty -
+      stderrPenalty * marginStdErr - failures * 100,
     avgMargin,
     avgDelta,
     marginStdErr,
+    deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
     stderrPenalty,
@@ -178,6 +181,7 @@ const evaluateWeightsRange = (weights, options) => {
 };
 
 const scoreAggregates = (aggregates, {
+  deltaWeight = 1,
   rawMarginWeight = 0.75,
   negativeRawMarginPenalty = 1.25,
   stderrPenalty = 0.35,
@@ -207,11 +211,12 @@ const scoreAggregates = (aggregates, {
   const marginStdErr = Math.sqrt(marginVariance / Math.max(1, total.matches));
   const rawMarginPenalty = avgMargin < 0 ? Math.abs(avgMargin) * negativeRawMarginPenalty : 0;
   return {
-    fitness: avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty - stderrPenalty * marginStdErr -
-      total.failures * 100,
+    fitness: deltaWeight * avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty -
+      stderrPenalty * marginStdErr - total.failures * 100,
     avgMargin,
     avgDelta,
     marginStdErr,
+    deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
     stderrPenalty,
@@ -275,6 +280,7 @@ const evaluateCandidateChunk = (chunk, options) =>
       rounds: options.rounds,
       baselineModel: options.baselineModel,
       pairedBaseline: options.pairedBaseline,
+      deltaWeight: options.deltaWeight,
       rawMarginWeight: options.rawMarginWeight,
       negativeRawMarginPenalty: options.negativeRawMarginPenalty,
       stderrPenalty: options.stderrPenalty,
@@ -365,6 +371,7 @@ const main = async () => {
   const workers = Math.max(1, Math.min(Number(args.get('workers') ?? availableWorkers), population));
   const shouldWrite = !args.get('no-write');
   const pairedBaseline = !args.get('no-paired-baseline');
+  const deltaWeight = Number(args.get('delta-weight') ?? 1);
   const rawMarginWeight = Number(args.get('raw-margin-weight') ?? 0.75);
   const negativeRawMarginPenalty = Number(args.get('negative-raw-margin-penalty') ?? 1.25);
   const stderrPenalty = Number(args.get('stderr-penalty') ?? 0.35);
@@ -378,6 +385,7 @@ const main = async () => {
       matches,
       rounds,
       pairedBaseline,
+      deltaWeight,
       rawMarginWeight,
       negativeRawMarginPenalty,
       stderrPenalty,
@@ -401,6 +409,7 @@ const main = async () => {
     workers,
     writePolicy: shouldWrite,
     pairedBaseline,
+    deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
     stderrPenalty,
@@ -434,6 +443,7 @@ const main = async () => {
       workers,
       baselineModel: RL_POLICY,
       pairedBaseline,
+      deltaWeight,
       rawMarginWeight,
       negativeRawMarginPenalty,
       stderrPenalty,
@@ -471,6 +481,7 @@ const main = async () => {
     rounds,
     baselineModel: RL_POLICY,
     pairedBaseline,
+    deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
     stderrPenalty,
@@ -488,6 +499,7 @@ const main = async () => {
     validationMatches,
     candidateMode: 'legal',
     heuristicPrior,
+    deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
     stderrPenalty,

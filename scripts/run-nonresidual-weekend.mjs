@@ -24,8 +24,9 @@ const validationScore = metrics => {
   const avgMargin = Number(validation.avgMargin ?? -Infinity);
   const avgDelta = Number(validation.avgDelta ?? avgMargin);
   const marginStdErr = Number(validation.marginStdErr ?? 0);
-  const stderrPenalty = Number(validation.stderrPenalty ?? metrics?.trainingSummary?.stderrPenalty ?? 0.35);
-  return avgMargin + 0.5 * avgDelta - stderrPenalty * marginStdErr;
+  const deltaWeight = Number(validation.deltaWeight ?? metrics?.trainingSummary?.deltaWeight ?? 0.1);
+  const gateZ = Number(metrics?.trainingSummary?.gateZ ?? 1.96);
+  return avgMargin + deltaWeight * avgDelta - gateZ * marginStdErr;
 };
 
 const run = (cmd, args, options = {}) => {
@@ -48,17 +49,17 @@ const maxRuns = Number(args.get('max-runs') ?? 1000);
 const gateEvery = Number(args.get('gate-every') ?? 3);
 const quick = Boolean(args.get('quick'));
 const population = Number(args.get('population') ?? (quick ? 8 : 48));
-const validationMatches = Number(args.get('validation-matches') ?? (quick ? 12 : 2500));
+const validationMatches = Number(args.get('validation-matches') ?? (quick ? 12 : 5000));
 
 const configs = quick ? [
-  { seed: 2101001, prior: 8, sigma: 0.22, raw: 0.9, penalty: 1.25, matches: 6, generations: 1 },
+  { seed: 2101001, prior: 8, sigma: 0.22, raw: 1, delta: 0.1, penalty: 1.25, stderr: 1, matches: 6, generations: 1 },
 ] : [
-  { seed: 2101001, prior: 8, sigma: 0.22, raw: 0.9, penalty: 1.25, stderr: 0.35, matches: 700, generations: 8 },
-  { seed: 2201001, prior: 6, sigma: 0.24, raw: 1.0, penalty: 1.4, stderr: 0.4, matches: 700, generations: 8 },
-  { seed: 2301001, prior: 10, sigma: 0.20, raw: 0.9, penalty: 1.5, stderr: 0.45, matches: 800, generations: 8 },
-  { seed: 2401001, prior: 4, sigma: 0.18, raw: 1.1, penalty: 1.2, stderr: 0.45, matches: 800, generations: 8 },
-  { seed: 2501001, prior: 12, sigma: 0.26, raw: 1.0, penalty: 1.6, stderr: 0.5, matches: 900, generations: 7 },
-  { seed: 2601001, prior: 8, sigma: 0.14, raw: 1.2, penalty: 1.4, stderr: 0.5, matches: 1000, generations: 7 },
+  { seed: 3101001, prior: 8, sigma: 0.16, raw: 1.2, delta: 0.1, penalty: 1.25, stderr: 1.2, matches: 1100, generations: 7, resume: true },
+  { seed: 3201001, prior: 6, sigma: 0.20, raw: 1.3, delta: 0.1, penalty: 1.4, stderr: 1.4, matches: 1100, generations: 7, resume: true },
+  { seed: 3301001, prior: 10, sigma: 0.18, raw: 1.2, delta: 0.0, penalty: 1.5, stderr: 1.6, matches: 1200, generations: 7, resume: true },
+  { seed: 3401001, prior: 4, sigma: 0.22, raw: 1.4, delta: 0.0, penalty: 1.2, stderr: 1.6, matches: 1200, generations: 7 },
+  { seed: 3501001, prior: 12, sigma: 0.14, raw: 1.2, delta: 0.1, penalty: 1.6, stderr: 1.8, matches: 1400, generations: 6, resume: true },
+  { seed: 3601001, prior: 8, sigma: 0.12, raw: 1.5, delta: 0.0, penalty: 1.4, stderr: 1.96, matches: 1500, generations: 6, resume: true },
 ];
 
 let bestPolicy = readTextIfExists(policyPath);
@@ -105,11 +106,13 @@ for (let runIndex = 0; runIndex < maxRuns && Date.now() < deadline; runIndex++) 
     '--heuristic-prior', String(config.prior),
     '--sigma', String(config.sigma),
     '--sigma-decay', '0.9',
+    '--delta-weight', String(config.delta ?? 0.1),
     '--raw-margin-weight', String(config.raw),
     '--negative-raw-margin-penalty', String(config.penalty),
     '--stderr-penalty', String(config.stderr ?? 0.35),
     '--seed', String(config.seed),
   ];
+  if (config.resume) trainArgs.push('--resume-current');
 
   console.log(JSON.stringify({ event: 'weekend-run-start', runIndex: runIndex + 1, config }));
   const status = run('node', trainArgs);
