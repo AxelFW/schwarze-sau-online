@@ -277,6 +277,7 @@ const evaluateCandidateChunk = (chunk, options) =>
       pairedBaseline: options.pairedBaseline,
       rawMarginWeight: options.rawMarginWeight,
       negativeRawMarginPenalty: options.negativeRawMarginPenalty,
+      stderrPenalty: options.stderrPenalty,
     }),
   }));
 
