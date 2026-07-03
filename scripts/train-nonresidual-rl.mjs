@@ -92,10 +92,12 @@ const evaluateWeights = (weights, {
   pairedBaseline = true,
   rawMarginWeight = 0.75,
   negativeRawMarginPenalty = 1.25,
+  stderrPenalty = 0.35,
   start = 0,
 }) => {
   const model = makeLegalModel(weights);
   let marginSum = 0;
+  let marginSquareSum = 0;
   let deltaSum = 0;
   let deltaCount = 0;
   let wins = 0;
@@ -113,6 +115,7 @@ const evaluateWeights = (weights, {
       });
       const margin = relativeSeatMargin(match.scores, challengerSeat);
       marginSum += margin;
+      marginSquareSum += margin ** 2;
       if (pairedBaseline) {
         const baselineMatch = runSimulatedMatch({
           rounds,
@@ -125,7 +128,9 @@ const evaluateWeights = (weights, {
       if (isSeatWinner(match.scores, challengerSeat)) wins += 1;
     } catch (_error) {
       failures += 1;
-      marginSum -= 1000;
+      const failureMargin = -1000;
+      marginSum += failureMargin;
+      marginSquareSum += failureMargin ** 2;
       if (pairedBaseline) {
         deltaSum -= 1000;
         deltaCount += 1;
@@ -137,13 +142,19 @@ const evaluateWeights = (weights, {
   const avgDelta = deltaCount
     ? deltaSum / deltaCount
     : avgMargin;
+  const marginVariance = matches > 1
+    ? Math.max(0, (marginSquareSum - matches * avgMargin ** 2) / (matches - 1))
+    : 0;
+  const marginStdErr = Math.sqrt(marginVariance / Math.max(1, matches));
   const rawMarginPenalty = avgMargin < 0 ? Math.abs(avgMargin) * negativeRawMarginPenalty : 0;
   return {
-    fitness: avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty - failures * 100,
+    fitness: avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty - stderrPenalty * marginStdErr - failures * 100,
     avgMargin,
     avgDelta,
+    marginStdErr,
     rawMarginWeight,
     negativeRawMarginPenalty,
+    stderrPenalty,
     winRate: wins / Math.max(1, matches),
     failures,
   };
@@ -156,6 +167,8 @@ const evaluateWeightsRange = (weights, options) => {
   });
   return {
     marginSum: result.avgMargin * options.matches,
+    marginSquareSum: (result.marginStdErr ** 2) * options.matches * Math.max(0, options.matches - 1) +
+      options.matches * result.avgMargin ** 2,
     deltaSum: result.avgDelta * options.matches,
     deltaCount: options.pairedBaseline ? options.matches : 0,
     wins: result.winRate * options.matches,
@@ -167,9 +180,11 @@ const evaluateWeightsRange = (weights, options) => {
 const scoreAggregates = (aggregates, {
   rawMarginWeight = 0.75,
   negativeRawMarginPenalty = 1.25,
+  stderrPenalty = 0.35,
 }) => {
   const total = aggregates.reduce((out, aggregate) => ({
     marginSum: out.marginSum + aggregate.marginSum,
+    marginSquareSum: out.marginSquareSum + aggregate.marginSquareSum,
     deltaSum: out.deltaSum + aggregate.deltaSum,
     deltaCount: out.deltaCount + aggregate.deltaCount,
     wins: out.wins + aggregate.wins,
@@ -177,6 +192,7 @@ const scoreAggregates = (aggregates, {
     matches: out.matches + aggregate.matches,
   }), {
     marginSum: 0,
+    marginSquareSum: 0,
     deltaSum: 0,
     deltaCount: 0,
     wins: 0,
@@ -185,13 +201,20 @@ const scoreAggregates = (aggregates, {
   });
   const avgMargin = total.marginSum / Math.max(1, total.matches);
   const avgDelta = total.deltaCount ? total.deltaSum / total.deltaCount : avgMargin;
+  const marginVariance = total.matches > 1
+    ? Math.max(0, (total.marginSquareSum - total.matches * avgMargin ** 2) / (total.matches - 1))
+    : 0;
+  const marginStdErr = Math.sqrt(marginVariance / Math.max(1, total.matches));
   const rawMarginPenalty = avgMargin < 0 ? Math.abs(avgMargin) * negativeRawMarginPenalty : 0;
   return {
-    fitness: avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty - total.failures * 100,
+    fitness: avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty - stderrPenalty * marginStdErr -
+      total.failures * 100,
     avgMargin,
     avgDelta,
+    marginStdErr,
     rawMarginWeight,
     negativeRawMarginPenalty,
+    stderrPenalty,
     winRate: total.wins / Math.max(1, total.matches),
     failures: total.failures,
   };
@@ -343,6 +366,7 @@ const main = async () => {
   const pairedBaseline = !args.get('no-paired-baseline');
   const rawMarginWeight = Number(args.get('raw-margin-weight') ?? 0.75);
   const negativeRawMarginPenalty = Number(args.get('negative-raw-margin-penalty') ?? 1.25);
+  const stderrPenalty = Number(args.get('stderr-penalty') ?? 0.35);
 
   let mean = initialWeights({ heuristicPrior, resumeCurrent });
   let sigma = sigmaInitial;
@@ -355,6 +379,7 @@ const main = async () => {
       pairedBaseline,
       rawMarginWeight,
       negativeRawMarginPenalty,
+      stderrPenalty,
     }),
     generation: 0,
   };
@@ -377,6 +402,7 @@ const main = async () => {
     pairedBaseline,
     rawMarginWeight,
     negativeRawMarginPenalty,
+    stderrPenalty,
     availableWorkers,
     featureCount: RL_FEATURE_NAMES.length,
     baseline: {
@@ -409,6 +435,7 @@ const main = async () => {
       pairedBaseline,
       rawMarginWeight,
       negativeRawMarginPenalty,
+      stderrPenalty,
     })).sort((a, b) => b.result.fitness - a.result.fitness);
 
     const elites = evaluated.slice(0, eliteCount);
@@ -445,6 +472,7 @@ const main = async () => {
     pairedBaseline,
     rawMarginWeight,
     negativeRawMarginPenalty,
+    stderrPenalty,
     workers,
   });
   const trainingSummary = {
@@ -461,6 +489,7 @@ const main = async () => {
     heuristicPrior,
     rawMarginWeight,
     negativeRawMarginPenalty,
+    stderrPenalty,
     workers,
     bestGeneration: best.generation,
     train: best.train,
