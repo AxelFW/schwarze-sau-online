@@ -11,7 +11,12 @@
     "start": "node server/index.js",
     "preview": "vite preview",
     "simulate:smoke": "node scripts/simulate-local-heuristic.mjs --matches 10",
-    "simulate:local": "node scripts/simulate-local-heuristic.mjs"
+    "simulate:local": "node scripts/simulate-local-heuristic.mjs",
+    "train:rl": "node scripts/train-rl-residual.mjs --candidate-mode heuristic --workers 12",
+    "train:rl:continue": "node scripts/train-rl-residual.mjs --resume-current --workers 12",
+    "train:rl:smoke": "node scripts/train-rl-residual.mjs --generations 2 --population 8 --matches 6 --validation-matches 12 --candidate-mode heuristic --workers 4 --no-write",
+    "evaluate:rl": "node scripts/evaluate-rl-bot.mjs",
+    "evaluate:rl:gate": "node scripts/evaluate-rl-bot.mjs --require-stronger --matches 5000 --rounds 8 --seed 970331"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

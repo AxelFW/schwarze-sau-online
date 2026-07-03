@@ -1,0 +1,30 @@
+{
+  "source": "cross-entropy-simulation-training",
+  "trainedAt": "2026-07-03T13:14:12.388Z",
+  "trainingSummary": {
+    "algorithm": "parallel cross-entropy residual policy search",
+    "generations": 20,
+    "population": 48,
+    "eliteCount": 12,
+    "matchesPerCandidate": 80,
+    "roundsPerMatch": 8,
+    "seed": 420703,
+    "validationSeed": 1419703,
+    "validationMatches": 400,
+    "candidateMode": "heuristic",
+    "workers": 12,
+    "bestGeneration": 6,
+    "train": {
+      "fitness": 19.4,
+      "avgMargin": 19.4,
+      "winRate": 0.3375,
+      "failures": 0
+    },
+    "validation": {
+      "fitness": 4.926666666666668,
+      "avgMargin": 4.926666666666668,
+      "winRate": 0.28,
+      "failures": 0
+    }
+  }
+}

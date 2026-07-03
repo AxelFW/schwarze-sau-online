@@ -43,6 +43,32 @@ BOT_DELAY_MS=650
 TRICK_REVIEW_MS=1400
 EXPIRY_SWEEP_MS=60000
 QUETSCH_REVIEW_MS=2600
+BOT_PLAY_POLICY=rl
+```
+
+`BOT_PLAY_POLICY=rl` uses the trained residual RL card policy in
+`shared/game/rlPolicyData.js`. Set `BOT_PLAY_POLICY=heuristic` to force the old
+heuristic card player.
+
+## RL bot training
+
+The RL bot is a dependency-free residual policy trained by simulation against
+the heuristic bot. It keeps the heuristic's legal/safety candidate set and learns
+a card tie-breaker from self-play outcomes.
+
+```bash
+npm run train:rl          # 12-worker training run
+npm run evaluate:rl       # head-to-head evaluation
+npm run evaluate:rl:gate  # 5,000-match gate; exits non-zero unless RL beats heuristic
+```
+
+The current checked-in policy passed:
+
+```text
+npm run evaluate:rl:gate
+averageMarginVsHeuristic: +2.697
+marginStdErr: 0.927
+strongerThanHeuristic: true
 ```
 
 ## Features

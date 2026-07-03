@@ -15,6 +15,10 @@ import {
   recommendHeuristicCards,
   recommendHeuristicQuetschCards,
 } from "../shared/game/heuristicBot.js";
+import {
+  chooseRlCard,
+  rlQuetschPick,
+} from "../shared/game/rlBot.js";
 import { sameCard, sortHand, cardPts, isPenalty, makeSeededRng } from "../shared/game/cards.js";
 import {
   BENCHMARK_DECKS,
@@ -51,6 +55,7 @@ const COMMENT_CHOICES = [
   "Ich liebe Plüssis",
   "Kommt von Herzen",
 ];
+const BOT_PLAY_POLICY = String(process.env.BOT_PLAY_POLICY || "rl").trim().toLowerCase();
 
 const envFlagEnabled = (value) =>
   value === undefined || value === null || String(value).trim().toLowerCase() !== "false";
@@ -370,6 +375,18 @@ function botDecisionGameState(room) {
   };
 }
 
+function chooseBotQuetschCards(hand, gs, seat) {
+  return BOT_PLAY_POLICY === "heuristic"
+    ? heuristicQuetschPick(hand, gs, seat)
+    : rlQuetschPick(hand, gs, seat);
+}
+
+function chooseBotCard(gs, player) {
+  return BOT_PLAY_POLICY === "heuristic"
+    ? chooseHeuristicCard(gs, player)
+    : chooseRlCard(gs, player);
+}
+
 function playerOwnsDisconnectedSeat(seat, token, name) {
   if (!seat || seat.type !== "human" || seat.socketId || !seat.disconnected) return false;
   if (token && seat.reconnectToken && seat.reconnectToken === token) return true;
@@ -442,10 +459,11 @@ function ensureBotQuetschSelections(room) {
   for (let seat = 0; seat < 4; seat++) {
     if (isBotControlledSeat(room, seat) && !game.quetschSelections[seat]) {
       const decisionGs = botDecisionGameState(room);
-      game.quetschSelections[seat] = heuristicQuetschPick(game.gs.hands[seat], decisionGs, seat);
+      game.quetschSelections[seat] = chooseBotQuetschCards(game.gs.hands[seat], decisionGs, seat);
       log("Bot wählt Quetsch-Karten", {
         roomCode: room.roomCode,
         seat,
+        botPolicy: BOT_PLAY_POLICY,
         botTargetingProfile: decisionGs.botTargetingProfiles?.[seat],
       });
     }
@@ -1181,11 +1199,12 @@ export function advanceOneBotCard(room) {
   }
 
   const decisionGs = botDecisionGameState(room);
-  const card = chooseHeuristicCard(decisionGs, player);
+  const card = chooseBotCard(decisionGs, player);
   log("Bot spielt Karte", {
     roomCode: room.roomCode,
     seat: player,
     card,
+    botPolicy: BOT_PLAY_POLICY,
     botTargetingProfile: decisionGs.botTargetingProfiles?.[player],
   });
   applyOnlineCard(room, player, card);
