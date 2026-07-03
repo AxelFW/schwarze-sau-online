@@ -23,7 +23,9 @@ const validationScore = metrics => {
   if (!validation) return -Infinity;
   const avgMargin = Number(validation.avgMargin ?? -Infinity);
   const avgDelta = Number(validation.avgDelta ?? avgMargin);
-  return avgMargin + 0.5 * avgDelta;
+  const marginStdErr = Number(validation.marginStdErr ?? 0);
+  const stderrPenalty = Number(validation.stderrPenalty ?? metrics?.trainingSummary?.stderrPenalty ?? 0.35);
+  return avgMargin + 0.5 * avgDelta - stderrPenalty * marginStdErr;
 };
 
 const run = (cmd, args, options = {}) => {
@@ -51,12 +53,12 @@ const validationMatches = Number(args.get('validation-matches') ?? (quick ? 12 :
 const configs = quick ? [
   { seed: 2101001, prior: 8, sigma: 0.22, raw: 0.9, penalty: 1.25, matches: 6, generations: 1 },
 ] : [
-  { seed: 2101001, prior: 8, sigma: 0.22, raw: 0.9, penalty: 1.25, matches: 700, generations: 8 },
-  { seed: 2201001, prior: 6, sigma: 0.24, raw: 1.0, penalty: 1.4, matches: 700, generations: 8 },
-  { seed: 2301001, prior: 10, sigma: 0.20, raw: 0.9, penalty: 1.5, matches: 800, generations: 8 },
-  { seed: 2401001, prior: 4, sigma: 0.18, raw: 1.1, penalty: 1.2, matches: 800, generations: 8 },
-  { seed: 2501001, prior: 12, sigma: 0.26, raw: 1.0, penalty: 1.6, matches: 900, generations: 7 },
-  { seed: 2601001, prior: 8, sigma: 0.14, raw: 1.2, penalty: 1.4, matches: 1000, generations: 7 },
+  { seed: 2101001, prior: 8, sigma: 0.22, raw: 0.9, penalty: 1.25, stderr: 0.35, matches: 700, generations: 8 },
+  { seed: 2201001, prior: 6, sigma: 0.24, raw: 1.0, penalty: 1.4, stderr: 0.4, matches: 700, generations: 8 },
+  { seed: 2301001, prior: 10, sigma: 0.20, raw: 0.9, penalty: 1.5, stderr: 0.45, matches: 800, generations: 8 },
+  { seed: 2401001, prior: 4, sigma: 0.18, raw: 1.1, penalty: 1.2, stderr: 0.45, matches: 800, generations: 8 },
+  { seed: 2501001, prior: 12, sigma: 0.26, raw: 1.0, penalty: 1.6, stderr: 0.5, matches: 900, generations: 7 },
+  { seed: 2601001, prior: 8, sigma: 0.14, raw: 1.2, penalty: 1.4, stderr: 0.5, matches: 1000, generations: 7 },
 ];
 
 let bestPolicy = readTextIfExists(policyPath);
@@ -105,6 +107,7 @@ for (let runIndex = 0; runIndex < maxRuns && Date.now() < deadline; runIndex++) 
     '--sigma-decay', '0.9',
     '--raw-margin-weight', String(config.raw),
     '--negative-raw-margin-penalty', String(config.penalty),
+    '--stderr-penalty', String(config.stderr ?? 0.35),
     '--seed', String(config.seed),
   ];
 
