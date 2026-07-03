@@ -92,16 +92,19 @@ const evaluateWeights = (weights, {
   pairedBaseline = true,
   rawMarginWeight = 0.75,
   negativeRawMarginPenalty = 1.25,
+  start = 0,
 }) => {
   const model = makeLegalModel(weights);
-  const margins = [];
-  const deltas = [];
+  let marginSum = 0;
+  let deltaSum = 0;
+  let deltaCount = 0;
   let wins = 0;
   let failures = 0;
 
   for (let m = 0; m < matches; m++) {
-    const challengerSeat = m % 4;
-    const matchSeed = seed + m * 9973;
+    const globalMatch = start + m;
+    const challengerSeat = globalMatch % 4;
+    const matchSeed = seed + globalMatch * 9973;
     try {
       const match = runSimulatedMatch({
         rounds,
@@ -109,26 +112,30 @@ const evaluateWeights = (weights, {
         policies: buildOneChallengerVsBaselinePolicies(model, baselineModel, challengerSeat),
       });
       const margin = relativeSeatMargin(match.scores, challengerSeat);
-      margins.push(margin);
+      marginSum += margin;
       if (pairedBaseline) {
         const baselineMatch = runSimulatedMatch({
           rounds,
           seed: matchSeed,
           policies: buildOneChallengerVsBaselinePolicies(baselineModel, baselineModel, challengerSeat),
         });
-        deltas.push(margin - relativeSeatMargin(baselineMatch.scores, challengerSeat));
+        deltaSum += margin - relativeSeatMargin(baselineMatch.scores, challengerSeat);
+        deltaCount += 1;
       }
       if (isSeatWinner(match.scores, challengerSeat)) wins += 1;
     } catch (_error) {
       failures += 1;
-      margins.push(-1000);
-      if (pairedBaseline) deltas.push(-1000);
+      marginSum -= 1000;
+      if (pairedBaseline) {
+        deltaSum -= 1000;
+        deltaCount += 1;
+      }
     }
   }
 
-  const avgMargin = margins.reduce((sum, x) => sum + x, 0) / Math.max(1, margins.length);
-  const avgDelta = deltas.length
-    ? deltas.reduce((sum, x) => sum + x, 0) / deltas.length
+  const avgMargin = marginSum / Math.max(1, matches);
+  const avgDelta = deltaCount
+    ? deltaSum / deltaCount
     : avgMargin;
   const rawMarginPenalty = avgMargin < 0 ? Math.abs(avgMargin) * negativeRawMarginPenalty : 0;
   return {
@@ -140,6 +147,94 @@ const evaluateWeights = (weights, {
     winRate: wins / Math.max(1, matches),
     failures,
   };
+};
+
+const evaluateWeightsRange = (weights, options) => {
+  const result = evaluateWeights(weights, {
+    ...options,
+    matches: options.matches,
+  });
+  return {
+    marginSum: result.avgMargin * options.matches,
+    deltaSum: result.avgDelta * options.matches,
+    deltaCount: options.pairedBaseline ? options.matches : 0,
+    wins: result.winRate * options.matches,
+    failures: result.failures,
+    matches: options.matches,
+  };
+};
+
+const scoreAggregates = (aggregates, {
+  rawMarginWeight = 0.75,
+  negativeRawMarginPenalty = 1.25,
+}) => {
+  const total = aggregates.reduce((out, aggregate) => ({
+    marginSum: out.marginSum + aggregate.marginSum,
+    deltaSum: out.deltaSum + aggregate.deltaSum,
+    deltaCount: out.deltaCount + aggregate.deltaCount,
+    wins: out.wins + aggregate.wins,
+    failures: out.failures + aggregate.failures,
+    matches: out.matches + aggregate.matches,
+  }), {
+    marginSum: 0,
+    deltaSum: 0,
+    deltaCount: 0,
+    wins: 0,
+    failures: 0,
+    matches: 0,
+  });
+  const avgMargin = total.marginSum / Math.max(1, total.matches);
+  const avgDelta = total.deltaCount ? total.deltaSum / total.deltaCount : avgMargin;
+  const rawMarginPenalty = avgMargin < 0 ? Math.abs(avgMargin) * negativeRawMarginPenalty : 0;
+  return {
+    fitness: avgDelta + rawMarginWeight * avgMargin - rawMarginPenalty - total.failures * 100,
+    avgMargin,
+    avgDelta,
+    rawMarginWeight,
+    negativeRawMarginPenalty,
+    winRate: total.wins / Math.max(1, total.matches),
+    failures: total.failures,
+  };
+};
+
+const splitMatchRanges = (matches, chunkCount) => {
+  const chunks = [];
+  const size = Math.ceil(matches / chunkCount);
+  for (let start = 0; start < matches; start += size) {
+    chunks.push({ start, matches: Math.min(size, matches - start) });
+  }
+  return chunks;
+};
+
+const evaluateWeightsParallel = async (weights, options) => {
+  const workerCount = Math.max(1, Math.min(Number(options.workers || 1), options.matches));
+  if (workerCount <= 1) return evaluateWeights(weights, options);
+
+  const workerUrl = new URL(import.meta.url);
+  const ranges = splitMatchRanges(options.matches, workerCount);
+  const aggregates = await Promise.all(ranges.map((range, workerIndex) => new Promise((resolve, reject) => {
+    const worker = new Worker(workerUrl, {
+      workerData: {
+        mode: 'evaluateWeightsRange',
+        weights,
+        options: {
+          ...options,
+          ...range,
+        },
+        workerIndex,
+      },
+    });
+    worker.on('message', message => {
+      if (message?.ok) resolve(message.aggregate);
+      else reject(new Error(message?.error || 'Non-residual RL validation worker failed.'));
+    });
+    worker.on('error', reject);
+    worker.on('exit', code => {
+      if (code !== 0) reject(new Error(`Non-residual RL validation worker exited with code ${code}.`));
+    });
+  })));
+
+  return scoreAggregates(aggregates, options);
 };
 
 const splitIntoChunks = (items, chunkCount) => {
@@ -192,9 +287,15 @@ const evaluatePopulation = async (candidates, options) => {
 
 if (!isMainThread) {
   try {
-    if (workerData?.mode !== 'evaluatePopulationChunk') throw new Error('Unknown worker mode.');
-    const evaluated = evaluateCandidateChunk(workerData.chunk, workerData.options);
-    parentPort.postMessage({ ok: true, evaluated });
+    if (workerData?.mode === 'evaluatePopulationChunk') {
+      const evaluated = evaluateCandidateChunk(workerData.chunk, workerData.options);
+      parentPort.postMessage({ ok: true, evaluated });
+    } else if (workerData?.mode === 'evaluateWeightsRange') {
+      const aggregate = evaluateWeightsRange(workerData.weights, workerData.options);
+      parentPort.postMessage({ ok: true, aggregate });
+    } else {
+      throw new Error('Unknown worker mode.');
+    }
   } catch (error) {
     parentPort.postMessage({ ok: false, error: error?.message || String(error) });
   }
@@ -336,13 +437,15 @@ const main = async () => {
 
   const trainedAt = new Date().toISOString();
   const trainedModel = makeLegalModel(best.weights);
-  const validation = evaluateWeights(trainedModel.weights, {
+  const validation = await evaluateWeightsParallel(trainedModel.weights, {
     seed: validationSeed,
     matches: validationMatches,
     rounds,
+    baselineModel: RL_POLICY,
     pairedBaseline,
     rawMarginWeight,
     negativeRawMarginPenalty,
+    workers,
   });
   const trainingSummary = {
     algorithm: 'parallel cross-entropy legal-action policy search',
