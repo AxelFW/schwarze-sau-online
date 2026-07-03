@@ -38,13 +38,15 @@ const meanVectors = vectors => {
 };
 
 const clampWeights = weights => weights.map(w => Math.max(-12, Math.min(12, Number(w) || 0)));
+const clampDeviationThreshold = value => Math.max(0, Math.min(12, Number(value) || 0));
 const featureIndex = name => RL_FEATURE_NAMES.indexOf(name);
 
-const makeLegalModel = weights => ({
+const makeLegalModel = (weights, { legalDeviationThreshold = 0 } = {}) => ({
   kind: 'residual-linear-card-policy',
   version: 1,
   trained: true,
   candidateMode: 'legal',
+  legalDeviationThreshold: clampDeviationThreshold(legalDeviationThreshold),
   featureNames: [...RL_FEATURE_NAMES],
   weights: clampWeights(weights),
   metadata: {
@@ -84,11 +86,19 @@ const initialWeights = ({ heuristicPrior = 8, resumeCurrent = false } = {}) => {
   return clampWeights(weights);
 };
 
+const initialDeviationThreshold = ({ defaultDeviationThreshold = 0, resumeCurrent = false } = {}) => {
+  if (resumeCurrent && Object.hasOwn(NON_RESIDUAL_RL_POLICY, 'legalDeviationThreshold')) {
+    return clampDeviationThreshold(NON_RESIDUAL_RL_POLICY.legalDeviationThreshold);
+  }
+  return clampDeviationThreshold(defaultDeviationThreshold);
+};
+
 const evaluateWeights = (weights, {
   seed,
   matches,
   rounds,
   baselineModel = RL_POLICY,
+  legalDeviationThreshold = 0,
   pairedBaseline = true,
   deltaWeight = 1,
   rawMarginWeight = 0.75,
@@ -96,7 +106,7 @@ const evaluateWeights = (weights, {
   stderrPenalty = 0.35,
   start = 0,
 }) => {
-  const model = makeLegalModel(weights);
+  const model = makeLegalModel(weights, { legalDeviationThreshold });
   let marginSum = 0;
   let marginSquareSum = 0;
   let deltaSum = 0;
@@ -154,6 +164,7 @@ const evaluateWeights = (weights, {
     avgMargin,
     avgDelta,
     marginStdErr,
+    legalDeviationThreshold: clampDeviationThreshold(legalDeviationThreshold),
     deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
@@ -181,6 +192,7 @@ const evaluateWeightsRange = (weights, options) => {
 };
 
 const scoreAggregates = (aggregates, {
+  legalDeviationThreshold = 0,
   deltaWeight = 1,
   rawMarginWeight = 0.75,
   negativeRawMarginPenalty = 1.25,
@@ -216,6 +228,7 @@ const scoreAggregates = (aggregates, {
     avgMargin,
     avgDelta,
     marginStdErr,
+    legalDeviationThreshold: clampDeviationThreshold(legalDeviationThreshold),
     deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
@@ -279,6 +292,7 @@ const evaluateCandidateChunk = (chunk, options) =>
       matches: options.matches,
       rounds: options.rounds,
       baselineModel: options.baselineModel,
+      legalDeviationThreshold: candidate.deviationThreshold,
       pairedBaseline: options.pairedBaseline,
       deltaWeight: options.deltaWeight,
       rawMarginWeight: options.rawMarginWeight,
@@ -365,6 +379,8 @@ const main = async () => {
   const sigmaInitial = Number(args.get('sigma') ?? 0.35);
   const sigmaDecay = Number(args.get('sigma-decay') ?? 0.9);
   const heuristicPrior = Number(args.get('heuristic-prior') ?? 8);
+  const deviationThresholdInitial = Number(args.get('deviation-threshold') ?? 0);
+  const deviationThresholdSigmaInitial = Number(args.get('deviation-threshold-sigma') ?? 0);
   const resumeCurrent = Boolean(args.get('resume-current'));
   const validationMatches = Number(args.get('validation-matches') ?? Math.max(200, matches * 3));
   const validationSeed = Number(args.get('validation-seed') ?? seed + 999000);
@@ -378,20 +394,11 @@ const main = async () => {
 
   let mean = initialWeights({ heuristicPrior, resumeCurrent });
   let sigma = sigmaInitial;
-  let best = {
-    weights: [...mean],
-    train: evaluateWeights(mean, {
-      seed,
-      matches,
-      rounds,
-      pairedBaseline,
-      deltaWeight,
-      rawMarginWeight,
-      negativeRawMarginPenalty,
-      stderrPenalty,
-    }),
-    generation: 0,
-  };
+  let meanDeviationThreshold = initialDeviationThreshold({
+    defaultDeviationThreshold: deviationThresholdInitial,
+    resumeCurrent,
+  });
+  let deviationThresholdSigma = Math.max(0, Number(deviationThresholdSigmaInitial) || 0);
 
   console.log(JSON.stringify({
     event: 'start',
@@ -404,6 +411,8 @@ const main = async () => {
     seed,
     sigmaInitial,
     sigmaDecay,
+    deviationThresholdInitial: meanDeviationThreshold,
+    deviationThresholdSigma,
     heuristicPrior,
     resumeCurrent,
     workers,
@@ -421,17 +430,44 @@ const main = async () => {
     },
   }, null, 2));
 
+  const initialTrain = await evaluateWeightsParallel(mean, {
+    seed,
+    matches,
+    rounds,
+    baselineModel: RL_POLICY,
+    legalDeviationThreshold: meanDeviationThreshold,
+    pairedBaseline,
+    deltaWeight,
+    rawMarginWeight,
+    negativeRawMarginPenalty,
+    stderrPenalty,
+    workers,
+  });
+  let best = {
+    weights: [...mean],
+    deviationThreshold: meanDeviationThreshold,
+    train: initialTrain,
+    generation: 0,
+  };
+
+  console.log(JSON.stringify({
+    event: 'initial',
+    legalDeviationThreshold: meanDeviationThreshold,
+    train: initialTrain,
+  }));
+
   for (let generation = 1; generation <= generations; generation++) {
     const rng = makeSeededRng(seed + generation * 100003);
     const candidates = [
-      { weights: [...mean], source: 'mean', index: 0 },
-      { weights: [...best.weights], source: 'best', index: 1 },
+      { weights: [...mean], deviationThreshold: meanDeviationThreshold, source: 'mean', index: 0 },
+      { weights: [...best.weights], deviationThreshold: best.deviationThreshold, source: 'best', index: 1 },
     ];
     while (candidates.length < population) {
       candidates.push({
         source: 'sample',
         index: candidates.length,
         weights: clampWeights(mean.map(w => w + randn(rng) * sigma)),
+        deviationThreshold: clampDeviationThreshold(meanDeviationThreshold + randn(rng) * deviationThresholdSigma),
       });
     }
 
@@ -451,11 +487,17 @@ const main = async () => {
 
     const elites = evaluated.slice(0, eliteCount);
     mean = clampWeights(meanVectors(elites.map(x => x.weights)));
+    meanDeviationThreshold = clampDeviationThreshold(
+      elites.reduce((sum, x) => sum + clampDeviationThreshold(x.deviationThreshold), 0) /
+        Math.max(1, elites.length)
+    );
     sigma *= sigmaDecay;
+    deviationThresholdSigma *= sigmaDecay;
 
     if (evaluated[0].result.fitness > best.train.fitness) {
       best = {
         weights: [...evaluated[0].weights],
+        deviationThreshold: clampDeviationThreshold(evaluated[0].deviationThreshold),
         train: evaluated[0].result,
         generation,
       };
@@ -465,21 +507,27 @@ const main = async () => {
       event: 'generation',
       generation,
       sigma: Number(sigma.toFixed(4)),
+      deviationThresholdSigma: Number(deviationThresholdSigma.toFixed(4)),
+      meanDeviationThreshold: Number(meanDeviationThreshold.toFixed(4)),
       bestThisGeneration: evaluated[0].result,
       bestOverall: {
         generation: best.generation,
+        legalDeviationThreshold: best.deviationThreshold,
         train: best.train,
       },
     }));
   }
 
   const trainedAt = new Date().toISOString();
-  const trainedModel = makeLegalModel(best.weights);
+  const trainedModel = makeLegalModel(best.weights, {
+    legalDeviationThreshold: best.deviationThreshold,
+  });
   const validation = await evaluateWeightsParallel(trainedModel.weights, {
     seed: validationSeed,
     matches: validationMatches,
     rounds,
     baselineModel: RL_POLICY,
+    legalDeviationThreshold: best.deviationThreshold,
     pairedBaseline,
     deltaWeight,
     rawMarginWeight,
@@ -499,6 +547,8 @@ const main = async () => {
     validationMatches,
     candidateMode: 'legal',
     heuristicPrior,
+    legalDeviationThreshold: best.deviationThreshold,
+    deviationThresholdSigma: deviationThresholdSigmaInitial,
     deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,

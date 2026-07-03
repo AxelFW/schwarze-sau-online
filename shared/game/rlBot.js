@@ -179,6 +179,11 @@ const dot = (a, b) => {
   return out;
 };
 
+const normalizeDeviationThreshold = value => {
+  const threshold = Number(value);
+  return Number.isFinite(threshold) ? Math.max(0, threshold) : 0;
+};
+
 const validCardsFor = (gs, player) => {
   const hand = gs?.hands?.[player] ?? [];
   return getValidIdxs(hand, gs?.leadSuit ?? null).map(i => hand[i]);
@@ -219,6 +224,7 @@ export const normalizeRlModel = (model = RL_POLICY) => {
     return {
       ...model,
       candidateMode: model.candidateMode === 'legal' ? 'legal' : 'heuristic',
+      legalDeviationThreshold: normalizeDeviationThreshold(model.legalDeviationThreshold),
       weights: RL_FEATURE_NAMES.map(name => byName.get(name) ?? 0),
       featureNames: [...RL_FEATURE_NAMES],
     };
@@ -228,6 +234,7 @@ export const normalizeRlModel = (model = RL_POLICY) => {
     return {
       ...model,
       candidateMode: model.candidateMode === 'legal' ? 'legal' : 'heuristic',
+      legalDeviationThreshold: normalizeDeviationThreshold(model.legalDeviationThreshold),
       weights: model.weights.map(x => Number(x) || 0),
       featureNames: [...RL_FEATURE_NAMES],
     };
@@ -377,10 +384,24 @@ export const chooseRlCardFromModel = (gs, player, {
     : heuristicCards.filter(c => legal.some(x => sameCard(x, c)));
   const candidates = pool.length ? pool : legal;
 
-  let best = null;
-  for (const card of candidates) {
-    const score = scoreRlCard(gs, player, card, { model: normalized, decision }) + stableCardTie(card);
-    if (!best || score > best.score) best = { card, score };
+  const scoreCard = card => scoreRlCard(gs, player, card, { model: normalized, decision }) + stableCardTie(card);
+  const bestFrom = cards => {
+    let best = null;
+    for (const card of cards) {
+      const score = scoreCard(card);
+      if (!best || score > best.score) best = { card, score };
+    }
+    return best;
+  };
+
+  const best = bestFrom(candidates);
+
+  if (normalized.candidateMode === 'legal' && normalized.legalDeviationThreshold > 0 && best?.card) {
+    const fallback = chooseRlCardFromModel(gs, player, { model: RL_POLICY, rng, exploration: 0 });
+    if (fallback && !sameCard(best.card, fallback)) {
+      const fallbackScore = scoreCard(fallback);
+      if (best.score - fallbackScore < normalized.legalDeviationThreshold) return fallback;
+    }
   }
 
   return best?.card ?? candidates[0] ?? null;

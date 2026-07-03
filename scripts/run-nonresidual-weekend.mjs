@@ -52,14 +52,14 @@ const population = Number(args.get('population') ?? (quick ? 8 : 48));
 const validationMatches = Number(args.get('validation-matches') ?? (quick ? 12 : 5000));
 
 const configs = quick ? [
-  { seed: 2101001, prior: 8, sigma: 0.22, raw: 1, delta: 0.1, penalty: 1.25, stderr: 1, matches: 6, generations: 1 },
+  { seed: 2101001, prior: 8, sigma: 0.22, threshold: 2, thresholdSigma: 1, raw: 1, delta: 0.1, penalty: 1.25, stderr: 1, matches: 6, generations: 1 },
 ] : [
-  { seed: 3101001, prior: 8, sigma: 0.16, raw: 1.2, delta: 0.1, penalty: 1.25, stderr: 1.2, matches: 1100, generations: 7, resume: true },
-  { seed: 3201001, prior: 6, sigma: 0.20, raw: 1.3, delta: 0.1, penalty: 1.4, stderr: 1.4, matches: 1100, generations: 7, resume: true },
-  { seed: 3301001, prior: 10, sigma: 0.18, raw: 1.2, delta: 0.0, penalty: 1.5, stderr: 1.6, matches: 1200, generations: 7, resume: true },
-  { seed: 3401001, prior: 4, sigma: 0.22, raw: 1.4, delta: 0.0, penalty: 1.2, stderr: 1.6, matches: 1200, generations: 7 },
-  { seed: 3501001, prior: 12, sigma: 0.14, raw: 1.2, delta: 0.1, penalty: 1.6, stderr: 1.8, matches: 1400, generations: 6, resume: true },
-  { seed: 3601001, prior: 8, sigma: 0.12, raw: 1.5, delta: 0.0, penalty: 1.4, stderr: 1.96, matches: 1500, generations: 6, resume: true },
+  { seed: 4101001, prior: 8, sigma: 0.14, threshold: 2.0, thresholdSigma: 0.9, raw: 1.4, delta: 0.1, penalty: 1.25, stderr: 1.6, matches: 1200, generations: 7, resume: true },
+  { seed: 4201001, prior: 7, sigma: 0.18, threshold: 3.0, thresholdSigma: 1.0, raw: 1.5, delta: 0.0, penalty: 1.35, stderr: 1.8, matches: 1300, generations: 7, resume: true },
+  { seed: 4301001, prior: 10, sigma: 0.12, threshold: 4.0, thresholdSigma: 1.2, raw: 1.5, delta: 0.1, penalty: 1.5, stderr: 1.96, matches: 1500, generations: 6, resume: true },
+  { seed: 4401001, prior: 6, sigma: 0.20, threshold: 1.5, thresholdSigma: 0.8, raw: 1.6, delta: 0.0, penalty: 1.25, stderr: 1.96, matches: 1400, generations: 7 },
+  { seed: 4501001, prior: 12, sigma: 0.10, threshold: 5.0, thresholdSigma: 1.4, raw: 1.5, delta: 0.0, penalty: 1.6, stderr: 2.1, matches: 1600, generations: 6, resume: true },
+  { seed: 4601001, prior: 8, sigma: 0.10, threshold: 6.0, thresholdSigma: 1.5, raw: 1.7, delta: 0.0, penalty: 1.5, stderr: 2.2, matches: 1800, generations: 6, resume: true },
 ];
 
 let bestPolicy = readTextIfExists(policyPath);
@@ -106,6 +106,8 @@ for (let runIndex = 0; runIndex < maxRuns && Date.now() < deadline; runIndex++) 
     '--heuristic-prior', String(config.prior),
     '--sigma', String(config.sigma),
     '--sigma-decay', '0.9',
+    '--deviation-threshold', String(config.threshold ?? 0),
+    '--deviation-threshold-sigma', String(config.thresholdSigma ?? 0),
     '--delta-weight', String(config.delta ?? 0.1),
     '--raw-margin-weight', String(config.raw),
     '--negative-raw-margin-penalty', String(config.penalty),
