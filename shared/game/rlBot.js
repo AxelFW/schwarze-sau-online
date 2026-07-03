@@ -91,6 +91,19 @@ export const RL_FEATURE_NAMES = Object.freeze([
   'round_score_self',
   'score_margin_best',
   'score_margin_avg',
+  'not_heuristic_candidate',
+  'not_heuristic_penalty_abs',
+  'not_heuristic_is_heart',
+  'not_heuristic_is_spade',
+  'not_heuristic_is_queen_spades',
+  'not_heuristic_is_high_heart',
+  'not_heuristic_is_high_spade',
+  'not_heuristic_beats_current_trick',
+  'not_heuristic_current_trick_negative',
+  'not_heuristic_creates_void',
+  'heuristic_candidate_rank_high',
+  'heuristic_candidate_rank_low',
+  'heuristic_candidate_creates_void',
   ...RL_RULES.map(rule => `rule:${rule}`),
 ]);
 
@@ -313,6 +326,21 @@ export const encodeRlCardFeatures = (gs, player, card, decision = null) => {
   featureByName.set('score_margin_best', norm(ownScore - bestOther, 160));
   featureByName.set('score_margin_avg', norm(ownScore - avgOther, 160));
 
+  const notHeuristicCandidate = !heuristicCandidate;
+  featureByName.set('not_heuristic_candidate', bool(notHeuristicCandidate));
+  featureByName.set('not_heuristic_penalty_abs', notHeuristicCandidate ? featureByName.get('penalty_abs') : 0);
+  featureByName.set('not_heuristic_is_heart', bool(notHeuristicCandidate && card.s === 'H'));
+  featureByName.set('not_heuristic_is_spade', bool(notHeuristicCandidate && card.s === 'S'));
+  featureByName.set('not_heuristic_is_queen_spades', bool(notHeuristicCandidate && sameCard(card, QUEEN_SPADES)));
+  featureByName.set('not_heuristic_is_high_heart', bool(notHeuristicCandidate && card.s === 'H' && card.v >= 11));
+  featureByName.set('not_heuristic_is_high_spade', bool(notHeuristicCandidate && card.s === 'S' && card.v > 12));
+  featureByName.set('not_heuristic_beats_current_trick', notHeuristicCandidate ? featureByName.get('beats_current_trick') : 0);
+  featureByName.set('not_heuristic_current_trick_negative', notHeuristicCandidate ? featureByName.get('current_trick_negative') : 0);
+  featureByName.set('not_heuristic_creates_void', notHeuristicCandidate ? featureByName.get('creates_void') : 0);
+  featureByName.set('heuristic_candidate_rank_high', heuristicCandidate ? featureByName.get('rank_high') : 0);
+  featureByName.set('heuristic_candidate_rank_low', heuristicCandidate ? featureByName.get('rank_low') : 0);
+  featureByName.set('heuristic_candidate_creates_void', heuristicCandidate ? featureByName.get('creates_void') : 0);
+
   for (const name of ruleSet) featureByName.set(name, name === `rule:${rule}` ? 1 : 0);
 
   return RL_FEATURE_NAMES.map(name => featureByName.get(name) ?? 0);
@@ -369,4 +397,3 @@ export const chooseSeededHeuristicCard = (gs, player, rng = Math.random) => {
 };
 
 export const allCards = () => PY_SUITS.flatMap(s => VALS.map(v => ({ s, v })));
-

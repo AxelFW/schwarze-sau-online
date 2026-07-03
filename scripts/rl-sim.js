@@ -59,6 +59,9 @@ export const runSimulatedMatch = ({
   firstDealer = null,
 } = {}) => {
   const rng = typeof seed === 'function' ? seed : makeSeededRng(seed);
+  const originalRandom = Math.random;
+  if (typeof seed !== 'function') Math.random = makeSeededRng((Number(seed) || 0) ^ 0x9E3779B9);
+  try {
   const scores = [0, 0, 0, 0];
   const roundSummaries = [];
   let dealer = Number.isInteger(firstDealer) ? firstDealer : Math.floor(rng() * 4);
@@ -96,6 +99,9 @@ export const runSimulatedMatch = ({
   }
 
   return { rounds, scores, roundSummaries };
+  } finally {
+    Math.random = originalRandom;
+  }
 };
 
 export const relativeSeatMargin = (scores, seat) => {
@@ -113,3 +119,15 @@ export const isSeatWinner = (scores, seat) => {
 export const buildOneRlVsHeuristicPolicies = (model, rlSeat, options = {}) =>
   [0, 1, 2, 3].map(seat => seat === rlSeat ? makeRlPolicy(model, options) : makeHeuristicPolicy());
 
+export const buildOneChallengerVsBaselinePolicies = (
+  challengerModel,
+  baselineModel,
+  challengerSeat,
+  {
+    challengerOptions = {},
+    baselineOptions = {},
+  } = {}
+) => [0, 1, 2, 3].map(seat => seat === challengerSeat
+  ? makeRlPolicy(challengerModel, { name: 'challenger', ...challengerOptions })
+  : makeRlPolicy(baselineModel, { name: 'baseline', ...baselineOptions })
+);

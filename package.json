@@ -16,7 +16,15 @@
     "train:rl:continue": "node scripts/train-rl-residual.mjs --resume-current --workers 12",
     "train:rl:smoke": "node scripts/train-rl-residual.mjs --generations 2 --population 8 --matches 6 --validation-matches 12 --candidate-mode heuristic --workers 4 --no-write",
     "evaluate:rl": "node scripts/evaluate-rl-bot.mjs",
-    "evaluate:rl:gate": "node scripts/evaluate-rl-bot.mjs --require-stronger --matches 5000 --rounds 8 --seed 970331"
+    "evaluate:rl:gate": "node scripts/evaluate-rl-bot.mjs --require-stronger --matches 5000 --rounds 8 --seed 970331",
+    "train:rl:nonresidual": "node scripts/train-nonresidual-rl.mjs --workers 12",
+    "train:rl:nonresidual:continue": "node scripts/train-nonresidual-rl.mjs --resume-current --workers 12",
+    "train:rl:nonresidual:smoke": "node scripts/train-nonresidual-rl.mjs --generations 2 --population 8 --matches 6 --validation-matches 12 --workers 4 --no-write",
+    "evaluate:rl:nonresidual": "node scripts/evaluate-nonresidual-rl-bot.mjs",
+    "evaluate:rl:nonresidual:gate": "node scripts/evaluate-nonresidual-rl-bot.mjs --require-stronger --matches 5000 --rounds 8 --seed 991001",
+    "audit:rl:observation": "node scripts/audit-rl-observation.mjs --policy residual && node scripts/audit-rl-observation.mjs --policy nonresidual",
+    "run:rl:nonresidual:weekend": "node scripts/run-nonresidual-weekend.mjs --hours 48 --workers 12",
+    "run:rl:nonresidual:dry": "node scripts/run-nonresidual-weekend.mjs --quick --hours 0.01 --workers 4 --max-runs 1"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

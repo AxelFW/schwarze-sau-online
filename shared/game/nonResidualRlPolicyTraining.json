@@ -1,0 +1,44 @@
+{
+  "source": "cross-entropy-non-residual-simulation-training",
+  "trainedAt": "2026-07-03T14:33:52.393Z",
+  "trainingSummary": {
+    "algorithm": "parallel cross-entropy legal-action policy search",
+    "generations": 6,
+    "population": 36,
+    "eliteCount": 9,
+    "matchesPerCandidate": 600,
+    "roundsPerMatch": 8,
+    "seed": 1201001,
+    "validationSeed": 2200001,
+    "validationMatches": 2000,
+    "candidateMode": "legal",
+    "heuristicPrior": 8,
+    "rawMarginWeight": 0.75,
+    "negativeRawMarginPenalty": 1.25,
+    "workers": 12,
+    "bestGeneration": 1,
+    "train": {
+      "fitness": 4.421666666666667,
+      "avgMargin": 5.895555555555555,
+      "avgDelta": 0,
+      "rawMarginWeight": 0.75,
+      "negativeRawMarginPenalty": 1.25,
+      "winRate": 0.275,
+      "failures": 0
+    },
+    "validation": {
+      "fitness": -2.0026666666666695,
+      "avgMargin": -1.0013333333333347,
+      "avgDelta": 0,
+      "rawMarginWeight": 0.75,
+      "negativeRawMarginPenalty": 1.25,
+      "winRate": 0.2455,
+      "failures": 0
+    },
+    "baseline": {
+      "policy": "residual RL",
+      "candidateMode": "heuristic",
+      "trainedAt": "2026-07-03T13:14:12.388Z"
+    }
+  }
+}
