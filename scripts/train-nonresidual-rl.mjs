@@ -387,6 +387,11 @@ const main = async () => {
   const workers = Math.max(1, Math.min(Number(args.get('workers') ?? availableWorkers), population));
   const shouldWrite = !args.get('no-write');
   const pairedBaseline = !args.get('no-paired-baseline');
+  const selectionRecheckTop = Math.max(0, Math.min(
+    Number(args.get('selection-recheck-top') ?? 0),
+    population
+  ));
+  const selectionRecheckMatches = Math.max(1, Number(args.get('selection-recheck-matches') ?? matches));
   const deltaWeight = Number(args.get('delta-weight') ?? 1);
   const rawMarginWeight = Number(args.get('raw-margin-weight') ?? 0.75);
   const negativeRawMarginPenalty = Number(args.get('negative-raw-margin-penalty') ?? 1.25);
@@ -418,6 +423,8 @@ const main = async () => {
     workers,
     writePolicy: shouldWrite,
     pairedBaseline,
+    selectionRecheckTop,
+    selectionRecheckMatches,
     deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
@@ -485,7 +492,22 @@ const main = async () => {
       stderrPenalty,
     })).sort((a, b) => b.result.fitness - a.result.fitness);
 
-    const elites = evaluated.slice(0, eliteCount);
+    const selectionPool = selectionRecheckTop > 0
+      ? (await evaluatePopulation(evaluated.slice(0, selectionRecheckTop), {
+        evalSeed: evalSeed + 131071,
+        matches: selectionRecheckMatches,
+        rounds,
+        workers,
+        baselineModel: RL_POLICY,
+        pairedBaseline,
+        deltaWeight,
+        rawMarginWeight,
+        negativeRawMarginPenalty,
+        stderrPenalty,
+      })).sort((a, b) => b.result.fitness - a.result.fitness)
+      : evaluated;
+
+    const elites = selectionPool.slice(0, eliteCount);
     mean = clampWeights(meanVectors(elites.map(x => x.weights)));
     meanDeviationThreshold = clampDeviationThreshold(
       elites.reduce((sum, x) => sum + clampDeviationThreshold(x.deviationThreshold), 0) /
@@ -494,11 +516,11 @@ const main = async () => {
     sigma *= sigmaDecay;
     deviationThresholdSigma *= sigmaDecay;
 
-    if (evaluated[0].result.fitness > best.train.fitness) {
+    if (selectionPool[0].result.fitness > best.train.fitness) {
       best = {
-        weights: [...evaluated[0].weights],
-        deviationThreshold: clampDeviationThreshold(evaluated[0].deviationThreshold),
-        train: evaluated[0].result,
+        weights: [...selectionPool[0].weights],
+        deviationThreshold: clampDeviationThreshold(selectionPool[0].deviationThreshold),
+        train: selectionPool[0].result,
         generation,
       };
     }
@@ -509,7 +531,14 @@ const main = async () => {
       sigma: Number(sigma.toFixed(4)),
       deviationThresholdSigma: Number(deviationThresholdSigma.toFixed(4)),
       meanDeviationThreshold: Number(meanDeviationThreshold.toFixed(4)),
-      bestThisGeneration: evaluated[0].result,
+      selectionRecheck: selectionRecheckTop > 0
+        ? {
+          top: selectionRecheckTop,
+          matches: selectionRecheckMatches,
+          initialBest: evaluated[0].result,
+        }
+        : null,
+      bestThisGeneration: selectionPool[0].result,
       bestOverall: {
         generation: best.generation,
         legalDeviationThreshold: best.deviationThreshold,
@@ -549,6 +578,8 @@ const main = async () => {
     heuristicPrior,
     legalDeviationThreshold: best.deviationThreshold,
     deviationThresholdSigma: deviationThresholdSigmaInitial,
+    selectionRecheckTop,
+    selectionRecheckMatches,
     deltaWeight,
     rawMarginWeight,
     negativeRawMarginPenalty,
