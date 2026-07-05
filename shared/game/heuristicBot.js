@@ -1354,18 +1354,102 @@ const canStillBeOvertaken = (card, gs, player) => {
   return unseenCardsOfSuit(gs, player, card.s).some(c => c.v > card.v);
 };
 
+const effectiveLastForSuit = (gs, player) => {
+  if(!gs.leadSuit || !gs.trick.length) return false;
+  if(gs.trick.length === 3) return true;
+
+  const laterPlayers = playersAfterCurrentInTrick(gs, player);
+  return laterPlayers.length > 0 && laterPlayers.every(p => knownVoidInSuit(gs, p, gs.leadSuit));
+};
+
+const laterVoidDumpSlots = (gs, player, suit) =>
+  playersAfterCurrentInTrick(gs, player)
+    .filter(p => knownVoidInSuit(gs, p, suit) && playerCanStillDumpNegative(gs, p))
+    .length;
+
+const laterVoidDumpCostFloor = (gs, player, suit) => {
+  const slots = laterVoidDumpSlots(gs, player, suit);
+  if(slots <= 0) return 0;
+
+  const costs = remainingPenaltiesOutside(gs, player)
+    .map(c => remainingPenaltyCost([c]))
+    .sort((a,b) => b - a);
+  return costs.slice(0, slots).reduce((sum, cost) => sum + cost, 0);
+};
+
+const projectedFollowNetFloor = (card, gs, player) =>
+  trickNetValue(gs) + cardPts(card) - laterVoidDumpCostFloor(gs, player, gs.leadSuit);
+
+const negativePressureRemainsAfterFollow = (card, gs, player) => {
+  const resolved = [...completedCards(gs), ...trickCards(gs), card];
+  const ownPressure = (gs.hands[player] || [])
+    .some(c => !sameCard(c, card) && cardPts(c) < 0);
+  if(ownPressure) return true;
+
+  const unresolvedOutside = allPenaltyCards().filter(c => !cardIn(resolved, c));
+  return unresolvedOutside.length > laterVoidDumpSlots(gs, player, gs.leadSuit);
+};
+
+const hasEnoughOutsideOvertakeCards = (card, gs, player) => {
+  const outsideCount = unseenCardsOfSuit(gs, player, card.s).length;
+  const requiredOutside = isLowestStillUnplayedInSuit(card, gs) ? 1 : 3;
+  return outsideCount >= requiredOutside && hasHigherUnplayedOutsideOwnHand(card, gs, player);
+};
+
+const spadeHighControlUnderPressure = (gs, player) =>
+  queenSpadesStillOutNotInHand(gs, player) &&
+  (gs.hands[player] || []).some(c => c.s === 'S' && (c.v === 13 || c.v === 14));
+
+const heartPreserveEligibleAfterPlay = (preserve, play, gs, player) => {
+  if(preserve.s !== 'H') return false;
+  const remainingHearts = (gs.hands[player] || [])
+    .filter(c => c.s === 'H' && !sameCard(c, play));
+  return remainingHearts.length > 0 && remainingHearts.every(c => c.v >= 11);
+};
+
+const preservedBadTrickFollowCardEligible = (preserve, play, gs, player) => {
+  if(!negativePressureRemainsAfterFollow(play, gs, player)) return false;
+  if(!hasEnoughOutsideOvertakeCards(preserve, gs, player)) return false;
+
+  if(sideSuit(preserve.s)) return true;
+  if(preserve.s === 'S') return spadeHighControlUnderPressure(gs, player);
+  if(preserve.s === 'H') return heartPreserveEligibleAfterPlay(preserve, play, gs, player);
+  return false;
+};
+
+const forcedBadFollowPreserveLowCandidates = (cards, gs, player) => {
+  if(!effectiveLastForSuit(gs, player)) return [];
+  if(!cards.length || !cards.every(c => beatsCurrentTrick(c, gs))) return [];
+  if(!cards.every(c => projectedFollowNetFloor(c, gs, player) < 0)) return [];
+
+  const byRank = [...cards].sort((a,b) => a.v - b.v);
+  for(let i = 0; i < byRank.length - 1; i++) {
+    const preserve = byRank[i];
+    const higher = byRank
+      .slice(i + 1)
+      .filter(play => preservedBadTrickFollowCardEligible(preserve, play, gs, player));
+    if(higher.length) return smallestCards(higher);
+  }
+
+  return [];
+};
+
 const avoidRiskyFollowWinners = (cards, gs, player) => {
   if(!gs.leadSuit || !gs.trick.length) return cards;
+  const effectiveLast = effectiveLastForSuit(gs, player);
 
   const risky = c => {
     if(!beatsCurrentTrick(c, gs)) return false;
-    if(trickNetValue(gs) + cardPts(c) >= 0) return false;
-    if(canStillBeOvertaken(c, gs, player)) return false;
+    if(projectedFollowNetFloor(c, gs, player) >= 0) return false;
+    if(!effectiveLast && canStillBeOvertaken(c, gs, player)) return false;
     return true;
   };
 
   const safe = cards.filter(c => !risky(c));
   if(safe.length) return safe;
+
+  const preserveLow = forcedBadFollowPreserveLowCandidates(cards, gs, player);
+  if(preserveLow.length) return preserveLow;
 
   // Forced into winning a bad trick: minimize control / penalty exposure.
   return smallestCards(cards);
@@ -1546,6 +1630,35 @@ const positiveFollowWinners = (cards, gs, player) => {
   return winners.filter(c => c.s !== 'S' || c.v <= 11);
 };
 
+const cleanFirstSideSuitRun = (gs, player, suit) => {
+  if(!sideSuit(suit)) return false;
+  if(gs.trick.length !== 3) return false;
+  if(completedCards(gs).some(c => c.s === suit)) return false;
+  if(gs.trick.some(x => x.card?.s !== suit)) return false;
+
+  const si = suitIdx(suit);
+  if([0, 1, 2, 3].some(p => p !== player && gs.knownVoids?.[p]?.[si])) return false;
+
+  // If at least six outside cards remain after this first clean round, the
+  // saved ace is plausibly worth a second positive suit trick.
+  return unseenCardsOfSuit(gs, player, suit).length >= 6;
+};
+
+const lastSeatAcePreservingPositiveWinners = (winners, gs, player) => {
+  const defaultWinners = largestCards(winners);
+  const suit = gs.leadSuit;
+  if(!suit || !cleanFirstSideSuitRun(gs, player, suit)) return defaultWinners;
+
+  const handSuit = gs.hands[player].filter(c => c.s === suit);
+  const ace = handSuit.find(c => c.v === 14);
+  if(!ace || projectedLeadNetFloor(ace, gs, player) < HARVEST_MIN_PROJECTED_NET) {
+    return defaultWinners;
+  }
+
+  const lowerWinners = winners.filter(c => c.s === suit && c.v < 14);
+  return lowerWinners.length ? smallestCards(lowerWinners) : defaultWinners;
+};
+
 const exposedHighSpadeControlFollowCandidates = (cards, gs, player) => {
   if(gs.leadSuit !== 'S' || !gs.trick.length) return [];
   if(queenSpadesPlayed(gs) || queenSpadesInTrick(gs) || queenSpadesInHand(gs, player)) return [];
@@ -1583,7 +1696,8 @@ const avoidKingUnderAcePressure = (cards, gs, player) => {
 
   const known = new Set(knownCardsFor(gs, player).map(cardKey));
   const aceStillOut = !known.has(cardKey({s: gs.leadSuit, v: 14}));
-  const someoneCanStillPlayAfterBot = gs.trick.length < 3;
+  const someoneCanStillPlayAfterBot = playersAfterCurrentInTrick(gs, player)
+    .some(p => !knownVoidInSuit(gs, p, gs.leadSuit));
 
   const kingUnderAcePressure =
     aceAlreadyInTrick ||
@@ -1749,8 +1863,12 @@ const botSuggestionReason = (rule, detail = '') => {
       return 'Im Mittelspiel bevorzugt der Bot erst übernehmbare Karten; nur bei echter Strafkarten-Gefahr zählt danach die kurze Farbe.' + suffix;
     case 'positive_follow_take':
       return 'Der Bot übernimmt hier einen voraussichtlich positiven Stich; bei Pik und vermuteten ♠Q-Gefahren wird die Übernahmechance angepasst.' + suffix;
+    case 'positive_follow_preserve_ace':
+      return 'Der Bot übernimmt den positiven Stich mit der kleinsten ausreichenden Karte und hält das Ass für einen weiteren sauberen Farbstich zurück.' + suffix;
     case 'positive_follow_duck':
       return 'Der Bot bleibt hier lieber unter dem Stich, weil spätere Spieler nach Risikoabschätzung noch übernehmen oder gefährlich abwerfen könnten.' + suffix;
+    case 'forced_bad_follow_preserve_low':
+      return 'Der Bot muss einen negativen Stich gewinnen und spielt bewusst höher, um eine niedrige Folgekarte als Ausstieg zu behalten.' + suffix;
     case 'spade_control_unblock':
       return 'Der Bot übernimmt mit ♠K/♠A, weil alle späteren Spieler in Pik void sind und ein kleiner Pik die hohe Pik-Kontrolle für ♠Q festsetzen würde.' + suffix;
     case 'avoid_bad_follow_win':
@@ -1849,6 +1967,8 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   if(!isLeading && gs.leadSuit === 'H') {
     const harvestFollow = harvestFollowWinners(valid, gs, player);
     if(harvestFollow.length) return finish(harvestFollow, 'positive_follow_take');
+    const forcedBadPreserve = forcedBadFollowPreserveLowCandidates(valid, gs, player);
+    if(forcedBadPreserve.length) return finish(forcedBadPreserve, 'forced_bad_follow_preserve_low');
     return finish(heartFollowControlCandidates(valid, gs), 'heart_follow_control');
   }
 
@@ -2019,7 +2139,9 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
   if(gs.trick.length === 3) {
     const positiveWinners = positiveFollowWinners(candidates, gs, player);
     if(positiveWinners.length) {
-      return finish(largestCards(positiveWinners), 'positive_follow_take');
+      const winners = lastSeatAcePreservingPositiveWinners(positiveWinners, gs, player);
+      const preservesAce = winners.some(c => c.v < 14) && positiveWinners.some(c => c.s === gs.leadSuit && c.v === 14);
+      return finish(winners, preservesAce ? 'positive_follow_preserve_ace' : 'positive_follow_take');
     }
   }
 
@@ -2028,11 +2150,19 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
 
   // H6 follow-side: avoid currently winning net-negative tricks.
   const beforeRiskAvoidance = candidates;
+  const forcedBadPreserve = forcedBadFollowPreserveLowCandidates(candidates, gs, player);
   candidates = avoidRiskyFollowWinners(candidates, gs, player);
   const avoidedRiskyWin = beforeRiskAvoidance.length !== candidates.length || (
     beforeRiskAvoidance.length === candidates.length &&
     beforeRiskAvoidance.some((c, i) => !sameCard(c, candidates[i]))
   );
+  const usedForcedBadPreserve =
+    forcedBadPreserve.length &&
+    candidates.length === forcedBadPreserve.length &&
+    candidates.every(c => forcedBadPreserve.some(x => sameCard(x, c)));
+  if(usedForcedBadPreserve) {
+    return finish(candidates, 'forced_bad_follow_preserve_low');
+  }
 
   // New H9b: third position — probabilistically overtake positive tricks.
   if(gs.trick.length === 2) {
