@@ -716,8 +716,9 @@ const voidDump = (valid, gs, player) => {
     if(nonPenalty.length) return leastFutureWinnerValueCards(nonPenalty, gs, player)[0];
   }
 
-  // 2. If ♠Q is still out and we are poorly protected in spades, shed ♠A/♠K.
-  if(queenSpadesStillOutNotInHand(gs, player) && spadesLowerThanQueenInHand(gs, player) < 2) {
+  // 2. If ♠Q is still out and dumping a low spade would expose ♠A/♠K with
+  // fewer than two remaining guards, shed ♠A/♠K first.
+  if(queenSpadesStillOutNotInHand(gs, player) && spadesLowerThanQueenInHand(gs, player) <= 2) {
     const highSpades = valid.filter(c => c.s === 'S' && (c.v === 13 || c.v === 14));
     if(highSpades.length) return largestCards(highSpades)[0];
   }
@@ -1915,7 +1916,7 @@ const voidDumpRecommendationCandidates = (valid, gs, player) => {
     if(nonPenalty.length) return leastFutureWinnerValueCards(nonPenalty, gs, player);
   }
 
-  if(queenSpadesStillOutNotInHand(gs, player) && spadesLowerThanQueenInHand(gs, player) < 2) {
+  if(queenSpadesStillOutNotInHand(gs, player) && spadesLowerThanQueenInHand(gs, player) <= 2) {
     const highSpades = valid.filter(c => c.s === 'S' && (c.v === 13 || c.v === 14));
     if(highSpades.length) return largestCards(highSpades);
   }
