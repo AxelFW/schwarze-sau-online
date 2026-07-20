@@ -1695,9 +1695,17 @@ export function getPrivateGameView(room, socketId) {
   const settings = defaultRoomSettings(room.settings);
   let suggestion = null;
   if (settings.easyMode && seatIndex !== null && game.phase === "play" && gs.currentPlayer === seatIndex && validCards.length) {
-    const rec = recommendHeuristicCards(botDecisionGameState(room), seatIndex);
+    const decisionGs = botDecisionGameState(room);
+    const rec = recommendHeuristicCards(decisionGs, seatIndex);
+    const residualCard = chooseRlCard(decisionGs, seatIndex, rec);
+    const heuristicSuggestions = Array.isArray(rec?.cards)
+      ? rec.cards.filter((card) => validCards.some((valid) => sameCard(valid, card)))
+      : [];
+    const residualSuggestion = residualCard && heuristicSuggestions.some((card) => sameCard(card, residualCard))
+      ? [residualCard]
+      : heuristicSuggestions;
     suggestion = {
-      cards: Array.isArray(rec?.cards) ? rec.cards.filter((card) => validCards.some((valid) => sameCard(valid, card))) : [],
+      cards: residualSuggestion,
       rule: rec?.rule || "normal_follow",
       reason: rec?.reason || "Der Bot empfiehlt diese Karte nach seiner normalen Sicherheits- und Stichlogik.",
       reasonByCard: rec?.reasonByCard || {},

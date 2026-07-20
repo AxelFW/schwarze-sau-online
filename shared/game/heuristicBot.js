@@ -368,6 +368,7 @@ const HARVEST_MAX_SINGLE_OUTSIDE_PENALTY = 8;
 const HARVEST_MAX_TOTAL_OUTSIDE_PENALTY_RATIO = 0.65;
 const HARVEST_ASSET_TOTAL_PENALTY_RATIO = 0.80;
 const HARVEST_MIN_PROJECTED_NET = 1;
+const HARVEST_PROMOTION_MIN_OVERTAKE_PROBABILITY = 0.65;
 
 const randomFrom = cards => cards[Math.floor(Math.random() * cards.length)];
 const smallestCards = cards => {
@@ -1457,21 +1458,57 @@ const avoidRiskyFollowWinners = (cards, gs, player) => {
 };
 
 const harvestWinningLeads = (cards, gs, player) => {
-  if(!harvestModeActive(gs, player)) return [];
+  const noDecision = {cards: [], rule: 'harvest_lead'};
+  if(!harvestModeActive(gs, player)) return noDecision;
+
+  // Do not cash a guaranteed-winning HJ-HA before a card that will give the
+  // lead away on the next trick. In that shape, use the non-heart exit first
+  // so the high heart can later be discarded. This is deliberately a cheap
+  // rank check; the exact "Rest zu mir" proof remains in the claim logic.
+  const hasWinningNegativeHeart = cards.some(c =>
+    c.s === 'H' &&
+    10 + cardPts(c) < 0 &&
+    noHigherUnseenCard(c, gs, player)
+  );
+  if(hasWinningNegativeHeart) {
+    const nonHeartExits = cards.filter(c =>
+      c.s !== 'H' && hasHigherUnplayedOutsideOwnHand(c, gs, player)
+    );
+    if(nonHeartExits.length) {
+      const minSuitCount = Math.min(...nonHeartExits.map(c => handSuitCount(gs, player, c.s)));
+      const shortestSuitExits = nonHeartExits.filter(c => handSuitCount(gs, player, c.s) === minSuitCount);
+      return {
+        cards: smallestCards(shortestSuitExits),
+        rule: 'harvest_exit_lead',
+      };
+    }
+  }
 
   const positive = cards.filter(c =>
     !sameCard(c, QUEEN_SPADES) &&
     projectedLeadNetFloor(c, gs, player) >= HARVEST_MIN_PROJECTED_NET
   );
-  if(!positive.length) return [];
+  if(!positive.length) return noDecision;
 
   // First preference: highest remaining card of a suit.
   const highestRemaining = positive.filter(c => noHigherUnseenCard(c, gs, player));
-  if(highestRemaining.length) return largestCards(highestRemaining);
+  if(highestRemaining.length) {
+    return {cards: largestCards(highestRemaining), rule: 'harvest_lead'};
+  }
+
+  // With no sure winner available, lead below a promotable high card instead
+  // of spending that high card under its sole remaining stopper.
+  const promotionLeads = harvestPromotionLowerCards(positive, positive, gs, player);
+  if(promotionLeads.length) {
+    return {cards: promotionLeads, rule: 'harvest_promotion_lead'};
+  }
 
   // Fallback: high-probability winners.
   const likelyWinners = positive.filter(c => highWinProbability(c, gs, player));
-  return likelyWinners.length ? largestCards(likelyWinners) : [];
+  return {
+    cards: likelyWinners.length ? largestCards(likelyWinners) : [],
+    rule: 'harvest_lead',
+  };
 };
 
 const smallestOutsideHeartRank = (gs, player) => {
@@ -1577,6 +1614,100 @@ const followSuitNonVoidProbability = (gs, player, targetPlayer, suit) => {
 
   const pVoid = comb(unknownTotal - unseenSuitCount, targetHandSize) / denom;
   return clamp01(1 - pVoid);
+};
+
+const laterHigherCardProbability = (card, gs, player) => {
+  const laterPlayers = playersAfterCurrentInTrick(gs, player);
+  if(!laterPlayers.length) return 0;
+
+  const higherOutside = unseenCardsOfSuit(gs, player, card.s).filter(c => c.v > card.v);
+  if(!higherOutside.length) return 0;
+
+  const si = suitIdx(card.s);
+  const eligibleLater = laterPlayers.filter(p => !gs.knownVoids?.[p]?.[si]);
+  if(!eligibleLater.length) return 0;
+
+  const leftPlayer = (player + 1) % 4;
+  if(
+    eligibleLater.includes(leftPlayer) &&
+    liveKnownPassedLeft(gs, player).some(c => c.s === card.s && c.v > card.v)
+  ) {
+    return 1;
+  }
+
+  // On lead every possible holder still has to act. Following uses a compact
+  // public-information estimate for whether a higher card sits in a later hand.
+  if(!gs.trick.length) return 1;
+
+  const known = new Set(knownCardsFor(gs, player).map(cardKey));
+  const unknownTotal = 52 - known.size;
+  const targetHandSize = gs.hands[player]?.length ?? 0;
+  const eligibleSlots = Math.min(unknownTotal, eligibleLater.length * targetHandSize);
+  if(unknownTotal <= 0 || eligibleSlots <= 0) return 0;
+
+  const denom = comb(unknownTotal, eligibleSlots);
+  if(!denom) return 0;
+  const noHigher = comb(unknownTotal - higherOutside.length, eligibleSlots) / denom;
+  return clamp01(1 - noHigher);
+};
+
+const harvestPromotionSuitEligible = (suit, gs) =>
+  suit !== 'H' && (suit !== 'S' || queenSpadesPlayed(gs));
+
+const harvestPromotionLowerCards = (lowerPool, highPool, gs, player, {following = false} = {}) => {
+  if(following && gs.trick.length >= 3) return [];
+
+  const pairs = [];
+  for(const high of highPool) {
+    if(!harvestPromotionSuitEligible(high.s, gs) || sameCard(high, QUEEN_SPADES)) continue;
+
+    const outside = unseenCardsOfSuit(gs, player, high.s);
+    const aboveHigh = outside.filter(c => c.v > high.v);
+    if(aboveHigh.length !== 1) continue;
+
+    const overtakeProbability = laterHigherCardProbability(high, gs, player);
+    if(overtakeProbability < HARVEST_PROMOTION_MIN_OVERTAKE_PROBABILITY) continue;
+
+    for(const low of lowerPool) {
+      if(low.s !== high.s || low.v >= high.v) continue;
+      if(!outside.some(c => c.v > low.v && c.v < high.v)) continue;
+      if(
+        following &&
+        beatsCurrentTrick(low, gs) &&
+        trickNetValue(gs) + cardPts(low) < HARVEST_MIN_PROJECTED_NET
+      ) {
+        continue;
+      }
+      pairs.push({low, highRank: high.v, lowRank: low.v, overtakeProbability});
+    }
+  }
+
+  if(!pairs.length) return [];
+  pairs.sort((a,b) =>
+    b.highRank - a.highRank ||
+    b.overtakeProbability - a.overtakeProbability ||
+    b.lowRank - a.lowRank
+  );
+  const best = pairs[0];
+  return uniqueCardsByKey(pairs
+    .filter(x =>
+      x.highRank === best.highRank &&
+      x.overtakeProbability === best.overtakeProbability &&
+      x.lowRank === best.lowRank
+    )
+    .map(x => x.low));
+};
+
+const harvestPromotionFollowCandidates = (cards, gs, player) => {
+  if(!harvestModeActive(gs, player)) return [];
+  if(!gs.leadSuit || !gs.trick.length || gs.trick.length >= 3) return [];
+  if(!harvestPromotionSuitEligible(gs.leadSuit, gs)) return [];
+
+  const promotableHighs = cards.filter(c =>
+    beatsCurrentTrick(c, gs) &&
+    trickNetValue(gs) + cardPts(c) >= HARVEST_MIN_PROJECTED_NET
+  );
+  return harvestPromotionLowerCards(cards, promotableHighs, gs, player, {following: true});
 };
 
 const applyOvertakeRiskMultiplier = (pTake, gs, player, laterPlayers) => {
@@ -1850,6 +1981,12 @@ const botSuggestionReason = (rule, detail = '') => {
       return 'Der Bot meidet eine Farbe, in der ein Zielspieler sicher abwerfen könnte, und sucht stattdessen Druck über Pik oder Herz.' + suffix;
     case 'harvest_lead':
       return 'Der Bot sieht nur noch wenig ungelösten Strafkarten-Druck und versucht nun aktiver positive Stiche zu gewinnen.' + suffix;
+    case 'harvest_exit_lead':
+      return 'Der Bot gibt die Führung mit einer übernehmbaren Nicht-Herz-Karte ab, bevor er einen negativen Herz-Stich gewinnt.' + suffix;
+    case 'harvest_promotion_lead':
+      return 'Der Bot spielt die niedrigere Karte einer Farbe, damit die höhere Karte nach einer wahrscheinlichen Übernahme später noch einen positiven Stich gewinnen kann.' + suffix;
+    case 'harvest_promotion_follow':
+      return 'Der Bot hält die höhere Karte zurück, weil ein späterer Spieler sie wahrscheinlich übernehmen könnte, und bewahrt so ihre Chance auf einen späteren positiven Stich.' + suffix;
     case 'risky_heart_lead':
       return 'Der Bot meidet riskante Herz-Anspiele und nimmt die sicherere verbliebene Alternative.' + suffix;
     case 'void_risk_lead':
@@ -2036,8 +2173,10 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
     // H_HARVEST: If late-game penalty risk is low, stop over-avoiding
     // voids and prefer high-probability winners of positive tricks.
     // This runs after ♠Q safety, so it cannot accidentally expose ♠Q.
-    const harvestLeads = harvestWinningLeads(candidates, gs, player);
-    if(harvestLeads.length) return finish(harvestLeads, 'harvest_lead');
+    const harvestDecision = harvestWinningLeads(candidates, gs, player);
+    if(harvestDecision.cards.length) {
+      return finish(harvestDecision.cards, harvestDecision.rule);
+    }
 
     // H5: Avoid risky heart leads.
     const hearts = candidates.filter(c => c.s === 'H');
@@ -2144,6 +2283,13 @@ const heuristicDecision = (gs, player, { stochastic = true } = {}) => {
       const preservesAce = winners.some(c => c.v < 14) && positiveWinners.some(c => c.s === gs.leadSuit && c.v === 14);
       return finish(winners, preservesAce ? 'positive_follow_preserve_ace' : 'positive_follow_take');
     }
+  }
+
+  // In harvest mode, preserve a high card that has one remaining stopper when
+  // that stopper is likely to sit behind us and a lower gap card is available.
+  const harvestPromotionFollow = harvestPromotionFollowCandidates(candidates, gs, player);
+  if(harvestPromotionFollow.length) {
+    return finish(harvestPromotionFollow, 'harvest_promotion_follow');
   }
 
   // H8 revised: avoid wasting King under Ace pressure.

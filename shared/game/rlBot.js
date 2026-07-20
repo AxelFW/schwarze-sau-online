@@ -25,6 +25,9 @@ export const RL_RULES = Object.freeze([
   'heart_bleed_lead',
   'target_void_pressure_lead',
   'harvest_lead',
+  'harvest_exit_lead',
+  'harvest_promotion_lead',
+  'harvest_promotion_follow',
   'risky_heart_lead',
   'void_risk_lead',
   'negative_history_lead',
@@ -367,6 +370,7 @@ export const chooseRlCardFromModel = (gs, player, {
   model = RL_POLICY,
   rng = Math.random,
   exploration = 0,
+  decision = null,
 } = {}) => {
   const normalized = normalizeRlModel(model);
   if (!normalized || normalized.trained === false) return chooseHeuristicCard(gs, player);
@@ -377,14 +381,14 @@ export const chooseRlCardFromModel = (gs, player, {
     return legal[Math.floor(rng() * legal.length)] ?? legal[0];
   }
 
-  const decision = recommendHeuristicCards(gs, player);
-  const heuristicCards = decision?.cards ?? [];
+  const heuristicDecision = decision ?? recommendHeuristicCards(gs, player);
+  const heuristicCards = heuristicDecision?.cards ?? [];
   const pool = normalized.candidateMode === 'legal'
     ? legal
     : heuristicCards.filter(c => legal.some(x => sameCard(x, c)));
   const candidates = pool.length ? pool : legal;
 
-  const scoreCard = card => scoreRlCard(gs, player, card, { model: normalized, decision }) + stableCardTie(card);
+  const scoreCard = card => scoreRlCard(gs, player, card, { model: normalized, decision: heuristicDecision }) + stableCardTie(card);
   const bestFrom = cards => {
     let best = null;
     for (const card of cards) {
@@ -397,7 +401,12 @@ export const chooseRlCardFromModel = (gs, player, {
   const best = bestFrom(candidates);
 
   if (normalized.candidateMode === 'legal' && normalized.legalDeviationThreshold > 0 && best?.card) {
-    const fallback = chooseRlCardFromModel(gs, player, { model: RL_POLICY, rng, exploration: 0 });
+    const fallback = chooseRlCardFromModel(gs, player, {
+      model: RL_POLICY,
+      rng,
+      exploration: 0,
+      decision: heuristicDecision,
+    });
     if (fallback && !sameCard(best.card, fallback)) {
       const fallbackScore = scoreCard(fallback);
       if (best.score - fallbackScore < normalized.legalDeviationThreshold) return fallback;
@@ -407,7 +416,8 @@ export const chooseRlCardFromModel = (gs, player, {
   return best?.card ?? candidates[0] ?? null;
 };
 
-export const chooseRlCard = (gs, player) => chooseRlCardFromModel(gs, player, { model: RL_POLICY });
+export const chooseRlCard = (gs, player, decision = null) =>
+  chooseRlCardFromModel(gs, player, { model: RL_POLICY, decision });
 export const rlQuetschPick = heuristicQuetschPick;
 
 export const chooseSeededHeuristicCard = (gs, player, rng = Math.random) => {
