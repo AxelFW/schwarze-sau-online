@@ -44,7 +44,10 @@ const TRICK_DISPLAY_MS = Number(process.env.TRICK_DISPLAY_MS || process.env.TRIC
 const FINAL_TRICK_DISPLAY_MS = Number(process.env.FINAL_TRICK_DISPLAY_MS || Math.max(TRICK_DISPLAY_MS, 2600));
 const DISCONNECTED_HUMAN_BOT_DELAY_MS = Number(process.env.DISCONNECTED_HUMAN_BOT_DELAY_MS || 20_000);
 const REST_CLAIM_MIN_TRICKS = 2;
-const REST_CLAIM_MAX_TRICKS = 4;
+const REST_CLAIM_MAX_TRICKS = (() => {
+  const value = Number(process.env.REST_CLAIM_MAX_TRICKS ?? 4);
+  return Number.isInteger(value) && value >= REST_CLAIM_MIN_TRICKS && value <= 13 ? value : 4;
+})();
 const REST_CLAIM_REVEAL_MS = Number(process.env.REST_CLAIM_REVEAL_MS || 1250);
 const QUICK_GAME_DELAY_FACTOR = (() => {
   const value = Number(process.env.QUICK_GAME_DELAY_FACTOR ?? 0.62);

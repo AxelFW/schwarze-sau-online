@@ -43,8 +43,12 @@ BOT_DELAY_MS=650
 TRICK_REVIEW_MS=1400
 EXPIRY_SWEEP_MS=60000
 QUETSCH_REVIEW_MS=2600
+REST_CLAIM_MAX_TRICKS=3
 BOT_PLAY_POLICY=rl
 ```
+
+`REST_CLAIM_MAX_TRICKS` controls how early the server starts checking whether
+the current player can safely claim all remaining tricks.
 
 `BOT_PLAY_POLICY=rl` uses the trained residual RL card policy in
 `shared/game/rlPolicyData.js`. Set `BOT_PLAY_POLICY=heuristic` to force the old
